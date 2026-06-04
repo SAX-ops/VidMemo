@@ -8,6 +8,8 @@ class FormatInfo(BaseModel):
     ext: str
     size: Optional[int] = None
     url: str  # Direct playback URL for preview
+    audio_url: Optional[str] = None  # Separate audio stream URL (for DASH formats)
+    original_height: Optional[int] = None  # Original height before standardization (for yt-dlp format selection)
 
 
 class VideoInfo(BaseModel):

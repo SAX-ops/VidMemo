@@ -58,6 +58,8 @@ venv/
 
 # Backend downloads (temporary files)
 backend/downloads/
+backend/previews/
+backend/thumbnails/
 
 # Test files
 test-*.mjs

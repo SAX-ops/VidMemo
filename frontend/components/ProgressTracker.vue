@@ -19,26 +19,13 @@
     </div>
 
     <!-- 下载完成 -->
-    <div v-if="progress.status === 'completed'" class="mt-4 flex flex-col gap-3">
-      <div class="flex gap-3 justify-center">
-        <button
-          class="gradient-bg border-none rounded-xl px-6 py-3 text-white font-bold"
-          @click="$emit('re-download')"
-        >
-          重新下载
-        </button>
-      </div>
-
-      <!-- 文件路径（如果有） -->
-      <div v-if="filePath" class="flex gap-2 items-center mt-3">
-        <span class="text-xs text-gray-400 truncate flex-1">保存至: {{ filePath }}</span>
-        <button
-          class="text-xs text-primary-from hover:text-white px-2 py-1 border border-primary-from/30 rounded"
-          @click="$emit('copy-path')"
-        >
-          复制路径
-        </button>
-      </div>
+    <div v-if="progress.status === 'completed'" class="mt-4 flex justify-center">
+      <button
+        class="gradient-bg border-none rounded-xl px-6 py-3 text-white font-bold"
+        @click="$emit('re-download')"
+      >
+        重新下载
+      </button>
     </div>
   </div>
 </template>
@@ -50,11 +37,9 @@ defineProps<{
   progress: ProgressUpdate
   filename: string
   displayProgress: number
-  filePath: string | null
 }>()
 
 defineEmits<{
-  'copy-path': []
   're-download': []
 }>()
 </script>

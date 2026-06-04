@@ -3,6 +3,7 @@ export interface FormatInfo {
   ext: string
   size: number | null
   url: string
+  audio_url?: string
 }
 
 export interface VideoInfo {
