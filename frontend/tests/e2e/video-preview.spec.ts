@@ -159,4 +159,22 @@ test.describe('Video preview', () => {
       })
     })
   })
+
+  test.describe('TikTok (flaky: server-side yt-dlp + a_bogus)', () => {
+    test.describe.configure({ retries: 1 })
+
+    test('plays via backend preview-stream (server-side merge)', async ({ page }) => {
+      let previewStreamRequestSeen = false
+      page.on('request', req => {
+        const u = req.url()
+        if (u.includes('/api/preview-stream') && u.includes('tiktok.com')) {
+          previewStreamRequestSeen = true
+        }
+      })
+      await runPlatformTest(page, 'TikTok', TIKTOK_URL, async () => {
+        // No audio element on the server-side path — single merged mp4
+        expect(previewStreamRequestSeen, 'TikTok should have hit /api/preview-stream').toBe(true)
+      })
+    })
+  })
 })
