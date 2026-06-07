@@ -140,11 +140,15 @@ test.describe('Video preview', () => {
     }
   })
 
-  test('B站 plays via frontend dual-track (DASH video + audio)', async ({ page }) => {
-    await runPlatformTest(page, 'B站', BILIBILI_URL, async (video, audio) => {
-      // DASH-separated: audio element must have src
-      const audioSrc = await audio.getAttribute('src')
-      expect(audioSrc, 'B站 DASH audio src should be set').toBeTruthy()
+  test.describe('B站 (flaky: cold cache + 412 retries)', () => {
+    test.describe.configure({ retries: 1 })
+
+    test('plays via frontend dual-track (DASH video + audio)', async ({ page }) => {
+      await runPlatformTest(page, 'B站', BILIBILI_URL, async (video, audio) => {
+        // DASH-separated: audio element must have src
+        const audioSrc = await audio.getAttribute('src')
+        expect(audioSrc, 'B站 DASH audio src should be set').toBeTruthy()
+      })
     })
   })
 
