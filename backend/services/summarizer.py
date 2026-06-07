@@ -18,7 +18,7 @@ def _time_to_seconds(time_str: str) -> float:
 
 
 def _parse_vtt(filepath: str) -> list[dict]:
-    """Parse a VTT file into [{start, end, text}, ...]. Strips HTML tags; dedups consecutive duplicates."""
+    """Parse a VTT file into [{start, end, text}, ...]. Strips HTML tags; dedups duplicates globally."""
     with open(filepath, "r", encoding="utf-8") as f:
         content = f.read()
 
