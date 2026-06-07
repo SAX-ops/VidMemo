@@ -1,6 +1,8 @@
 """File-based cache for AI video summaries.
 
-Backing store: a single JSON file keyed by md5(url|language)[:16].
+Backing store: a single JSON file keyed by raw `url|language`.
+A public `_make_cache_key` helper is exported (returns md5(url|language)[:16])
+but the on-disk format uses the human-readable form for easier debugging.
 TTL is enforced lazily on access; expired entries are deleted on read.
 Writes are atomic (write to .tmp, then os.replace) so a crash mid-write
 can't corrupt the cache.
@@ -8,6 +10,7 @@ can't corrupt the cache.
 
 import hashlib
 import json
+import logging
 import os
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -102,8 +105,8 @@ class SummaryCache:
             return {}
         try:
             return json.loads(self.path.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            # Corrupt file → start fresh. Log warning in real life.
+        except (json.JSONDecodeError, OSError) as e:
+            logging.warning("Summary cache %s corrupt, starting fresh: %s", self.path, e)
             return {}
 
     def _write(self, data: dict) -> None:
