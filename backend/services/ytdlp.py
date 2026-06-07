@@ -99,7 +99,7 @@ class YtdlpService:
         return host.capitalize() or "Unknown"
 
     def _is_bilibili(self, url: str) -> bool:
-        return 'bilibili.com' in url
+        return 'bilibili.com' in url or 'b23.tv' in url
 
     @staticmethod
     def _is_twitter(url: str) -> bool:
@@ -112,6 +112,39 @@ class YtdlpService:
                    'twitter.com', 'x.com', 'tiktok.com',
                    'instagram.com', 'facebook.com', 'fb.watch']
         return any(d in url for d in blocked)
+
+    def _has_firefox_bilibili_cookies(self) -> bool:
+        """Quick check: does the Firefox profile have any bilibili cookies?
+
+        Used to decide between the direct B站 API (no cookies, 720P) and
+        yt-dlp (uses cookies, can get 1080P+). This avoids creating a temp
+        cookie file when we don't actually need it.
+        """
+        try:
+            profiles_dir = os.path.join(
+                os.environ.get('APPDATA', ''), 'Mozilla', 'Firefox', 'Profiles'
+            )
+            if not os.path.isdir(profiles_dir):
+                return False
+            for profile in os.listdir(profiles_dir):
+                cookie_path = os.path.join(profiles_dir, profile, 'cookies.sqlite')
+                if not os.path.isfile(cookie_path):
+                    continue
+                try:
+                    conn = sqlite3.connect(f'file:{cookie_path}?mode=ro', uri=True)
+                    cursor = conn.cursor()
+                    cursor.execute(
+                        'SELECT 1 FROM moz_cookies WHERE host LIKE "%bilibili%" LIMIT 1'
+                    )
+                    has = cursor.fetchone() is not None
+                    conn.close()
+                    if has:
+                        return True
+                except Exception:
+                    continue
+            return False
+        except Exception:
+            return False
 
     def _get_firefox_cookie_file(self) -> Optional[str]:
         """Read Bilibili cookies from Firefox and write to a Netscape cookie file.
@@ -269,6 +302,18 @@ class YtdlpService:
             from .douyin import parse_douyin
             return await parse_douyin(url)
 
+        # Bilibili: choose path based on whether we have login cookies.
+        # - With Firefox cookies: yt-dlp (1080P+ for logged-in users)
+        # - Without cookies: direct API (fast, 720P for guests)
+        if self._is_bilibili(url):
+            if not self._has_firefox_bilibili_cookies():
+                try:
+                    from .bilibili import parse_bilibili
+                    return await parse_bilibili(url)
+                except Exception as e:
+                    print(f'[bilibili] Direct API failed ({e}), falling back to yt-dlp')
+            # else: fall through to yt-dlp path, which will use the cookies
+
         def _extract_info(opts):
             # Use 'bv*+ba/b' for all platforms: tries separate video+audio, falls back to best (progressive).
             # 'best[height>=144]' was used before but fails for Facebook (height is unreliable there).
@@ -379,6 +424,27 @@ class YtdlpService:
                     'output_path': output_path,
                 }
             asyncio.create_task(self._run_douyin_download(task_id, url, quality, output_path))
+            return task_id
+
+        # Bilibili: try direct API first, fall back to yt-dlp on failure.
+        # Direct path: known .mp4 extension. yt-dlp fallback uses %(ext)s template
+        # and yt-dlp itself picks the extension (mp4 due to merge_output_format).
+        if self._is_bilibili(url):
+            direct_path = os.path.join(os.path.abspath(output_dir), f'{task_id}.mp4')
+            ytdlp_path = os.path.join(os.path.abspath(output_dir), f'{task_id}.%(ext)s')
+            with self._lock:
+                self.tasks[task_id] = {
+                    'status': 'downloading',
+                    'progress': 0,
+                    'speed': '',
+                    'eta': '',
+                    'downloaded': '',
+                    'file_path': None,
+                    'output_path': direct_path,
+                }
+            asyncio.create_task(self._run_bilibili_download(
+                task_id, url, quality, direct_path, ytdlp_path
+            ))
             return task_id
 
         # Use absolute path to avoid working directory issues in download endpoint
@@ -539,6 +605,64 @@ class YtdlpService:
                 except OSError:
                     pass
 
+    async def _run_bilibili_download(
+        self, task_id: str, url: str, quality: str, direct_path: str, ytdlp_path: str
+    ):
+        """Try the direct B站 API first; on any failure, fall back to yt-dlp.
+
+        The direct API path writes a complete .mp4 (no A/V merge needed because
+        `fnval=0` returns a single durl entry). yt-dlp fallback uses the
+        standard video+audio merge.
+        """
+        try:
+            from .bilibili import download_bilibili
+
+            with self._lock:
+                if task_id in self.tasks:
+                    self.tasks[task_id]['status'] = 'downloading'
+                    self.tasks[task_id]['progress'] = 10
+
+            await download_bilibili(url, quality, direct_path)
+
+            with self._lock:
+                if task_id in self.tasks:
+                    self.tasks[task_id]['progress'] = 100
+                    self.tasks[task_id]['status'] = 'completed'
+                    self.tasks[task_id]['file_path'] = direct_path
+            return
+        except Exception as e:
+            print(f'[bilibili] Direct download failed ({e}), falling back to yt-dlp')
+
+        # Fall back to yt-dlp. Reset progress and reconstruct the format spec.
+        # Also try Firefox cookies so logged-in users still get 1080P.
+        with self._lock:
+            if task_id in self.tasks:
+                self.tasks[task_id]['status'] = 'downloading'
+                self.tasks[task_id]['progress'] = 0
+
+        quality_lower = quality.lower()
+        if quality == 'audio':
+            format_spec = 'bestaudio/best'
+        elif 'p' in quality_lower:
+            quality_num = int(quality_lower.replace('p', ''))
+            height_max = int(quality_num * 1.1)
+            format_spec = (
+                f'bestvideo[height<={height_max}]+bestaudio/'
+                f'best[height<={height_max}]/best'
+            )
+        else:
+            format_spec = 'bestvideo+bestaudio/best'
+
+        cookie_file = self._get_firefox_cookie_file()
+        try:
+            await self._run_download(task_id, url, format_spec, ytdlp_path, cookie_file)
+        finally:
+            if cookie_file:
+                try:
+                    os.unlink(cookie_file)
+                except OSError:
+                    pass
+
     async def _run_douyin_download(self, task_id: str, url: str, quality: str, output_path: str):
         """Download Douyin video using the dedicated Douyin API."""
         try:
@@ -563,3 +687,208 @@ class YtdlpService:
                 if task_id in self.tasks:
                     self.tasks[task_id]['status'] = 'failed'
                     self.tasks[task_id]['error'] = str(e)
+
+    async def stream_to_stdout(
+        self, url: str, format_spec: str, cookie_file: Optional[str] = None
+    ):
+        """DEPRECATED: broken for B站 DASH sources. yt-dlp's `outtmpl: '-'`
+        forces MPEG-TS output, and the resulting TS file registers the
+        video stream as stream_type 0x06 (private data) in the PMT
+        instead of 0x1B (AVC) — no demuxer can decode it. Kept for
+        callers that might want to experiment, but the preview endpoint
+        now uses `download_to_file` instead.
+        """
+        # Reuse the implementation below for backward compatibility.
+        async for chunk in self._stream_to_stdout_impl(url, format_spec, cookie_file):
+            yield chunk
+
+    async def _stream_to_stdout_impl(
+        self, url: str, format_spec: str, cookie_file: Optional[str] = None
+    ):
+        """Stream yt-dlp's merged MP4 output to an async generator.
+
+        yt-dlp downloads video+audio to temp files, runs ffmpeg to merge
+        them, and writes the merged bytes. With `outtmpl: '-'`, the
+        destination is the process's stdout (fd 1). We redirect fd 1/fd 2
+        to an os.pipe at the OS level — this captures both yt-dlp's
+        direct writes AND the ffmpeg subprocess's stdout (subprocesses
+        inherit file descriptors, not Python's sys.stdout). A reader
+        thread drains the pipe and pushes chunks into the queue that
+        this generator yields back. The first frame becomes available
+        to the client as soon as the moov atom is in the receive buffer
+        (~1-2 MB into the stream).
+
+        The cookie_file (if any) is automatically cleaned up after the
+        stream finishes, whether the download succeeded or failed.
+
+        NOTE: produces MPEG-TS, not MP4 — see `stream_to_stdout` docstring.
+        """
+        import os as _os
+        import queue as queue_module
+
+        # Sentinel values pushed into the queue to signal end/error
+        CHUNK_DONE = object()
+        CHUNK_ERROR = object()
+
+        inner_queue: queue_module.Queue = queue_module.Queue()
+        outer_queue: asyncio.Queue = asyncio.Queue(maxsize=64)
+        loop = asyncio.get_running_loop()
+
+        def _run_download():
+            # Create a pipe and redirect fd 1 (stdout) and fd 2 (stderr) to it.
+            # The ffmpeg subprocess inherits these fds, so its output goes to
+            # the pipe regardless of how yt-dlp configures Python's sys.stdout.
+            read_fd, write_fd = _os.pipe()
+            saved_stdout_fd = _os.dup(1)
+            saved_stderr_fd = _os.dup(2)
+            _os.dup2(write_fd, 1)
+            _os.dup2(write_fd, 2)
+            _os.close(write_fd)
+
+            def _read_pipe():
+                try:
+                    while True:
+                        # Use a moderate chunk size; too small wastes syscalls,
+                        # too large adds latency for the first frame.
+                        data = _os.read(read_fd, 65536)
+                        if not data:
+                            break
+                        inner_queue.put(data)
+                except OSError:
+                    pass
+                finally:
+                    try:
+                        _os.close(read_fd)
+                    except OSError:
+                        pass
+
+            pipe_thread = threading.Thread(target=_read_pipe, daemon=True)
+            pipe_thread.start()
+
+            error = None
+            try:
+                opts = self._get_base_ydl_opts(url, cookie_file=cookie_file)
+                opts.update({
+                    'format': format_spec,
+                    'merge_output_format': 'mp4',
+                    'outtmpl': '-',
+                    'quiet': True,
+                    'no_warnings': True,
+                    # Move moov atom to start of file so the browser can
+                    # start playing as soon as the header is buffered.
+                    'postprocessor_args': {
+                        'ffmpeg_o': ['-movflags', '+faststart'],
+                    },
+                })
+                with YoutubeDL(opts) as ydl:
+                    ydl.download([url])
+            except Exception as e:
+                error = e
+                print(f'[yt-dlp] Stream error: {e}')
+            finally:
+                # Close the write end of the pipe to signal EOF to the reader.
+                # This is done by restoring the original fd 1/2, which makes
+                # the pipe's write end have no references and close.
+                try:
+                    _os.dup2(saved_stdout_fd, 1)
+                    _os.dup2(saved_stderr_fd, 2)
+                    _os.close(saved_stdout_fd)
+                    _os.close(saved_stderr_fd)
+                except OSError:
+                    pass
+
+            pipe_thread.join(timeout=10)
+            if error is not None:
+                inner_queue.put(CHUNK_ERROR)
+            else:
+                inner_queue.put(CHUNK_DONE)
+
+        thread = threading.Thread(target=_run_download, daemon=True)
+        thread.start()
+
+        async def _bridge():
+            while True:
+                item = await loop.run_in_executor(None, inner_queue.get)
+                await outer_queue.put(item)
+                if item is CHUNK_DONE or item is CHUNK_ERROR:
+                    return
+
+        bridge_task = asyncio.create_task(_bridge())
+
+        try:
+            while True:
+                chunk = await outer_queue.get()
+                if chunk is CHUNK_DONE:
+                    break
+                if chunk is CHUNK_ERROR:
+                    raise RuntimeError('yt-dlp streaming failed')
+                yield chunk
+        finally:
+            thread.join(timeout=5)
+            if not bridge_task.done():
+                bridge_task.cancel()
+                try:
+                    await bridge_task
+                except (asyncio.CancelledError, Exception):
+                    pass
+            if cookie_file:
+                try:
+                    os.unlink(cookie_file)
+                except OSError:
+                    pass
+
+    async def download_to_file(
+        self, url: str, format_spec: str, output_path: str,
+        cookie_file: Optional[str] = None,
+    ) -> None:
+        """Download + merge to a local file path. No progress tracking.
+
+        Used for preview generation — we don't need WebSocket progress, we
+        just need the final merged file on disk. The caller (the
+        preview-stream endpoint) serves the file with FileResponse, which
+        gives the browser full Range support for seeking.
+
+        Why this instead of `stream_to_stdout`:
+        yt-dlp's `outtmpl: '-' + merge_output_format: 'mp4'` forces MPEG-TS
+        output, and the resulting TS file is broken for B站 DASH sources:
+        the PMT registers the video stream as stream_type 0x06 (private
+        data) instead of 0x1B (AVC), so no demuxer can decode it. Writing
+        to a regular MP4 file produces a correct, seekable result.
+
+        Trade-off: the client has to wait for the full download before
+        playback starts (~10-30s for a 60MB B站 1080P video). The cache
+        hit path remains instant.
+
+        Cookie file (if any) is cleaned up automatically.
+        """
+        def _do_download(cookiefile: Optional[str]):
+            opts = self._get_base_ydl_opts(url, cookie_file=cookiefile)
+            opts.update({
+                'format': format_spec,
+                'merge_output_format': 'mp4',
+                'outtmpl': output_path,
+                'quiet': True,
+                'no_warnings': True,
+                'postprocessor_args': {
+                    'ffmpeg_o': ['-movflags', '+faststart'],
+                },
+            })
+            with YoutubeDL(opts) as ydl:
+                ydl.download([url])
+
+        try:
+            if cookie_file:
+                # Try with cookies first; fall back to visitor mode on
+                # any failure (mirrors _run_download's behavior).
+                try:
+                    await asyncio.to_thread(_do_download, cookie_file)
+                    return
+                except Exception as cookie_err:
+                    print(f'[yt-dlp] Cookie download failed ({cookie_err}), falling back to visitor mode')
+            await asyncio.to_thread(_do_download, None)
+        finally:
+            if cookie_file:
+                try:
+                    os.unlink(cookie_file)
+                except OSError:
+                    pass
