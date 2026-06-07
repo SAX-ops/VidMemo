@@ -18,11 +18,25 @@
         autoplay
         @play="onVideoPlay"
         @pause="onVideoPause"
+        @playing="onVideoPlay"
         @timeupdate="onTimeUpdate"
         @loadedmetadata="onLoadedMetadata"
+        @loadeddata="onLoadedData"
+        @canplay="onCanPlay"
+        @seeked="onSeeked"
+        @waiting="onVideoWaiting"
         @error="onVideoError"
         @click="togglePlay"
       />
+
+      <!-- Loading spinner (covers the black gap between play click and first frame) -->
+      <div
+        v-if="isPlaying && isLoading"
+        class="absolute inset-0 flex flex-col items-center justify-center bg-black/60 gap-3 pointer-events-none"
+      >
+        <div class="w-12 h-12 rounded-full border-4 border-white/20 border-t-white animate-spin" />
+        <span class="text-white/80 text-xs">加载中...</span>
+      </div>
 
       <!-- Hidden audio element for DASH-separated streams -->
       <audio ref="audioPlayer" />
@@ -53,6 +67,10 @@
           @mouseleave="hoverTime = null"
         >
           <div class="absolute top-1/2 -translate-y-1/2 left-0 right-0 h-1 bg-white/20 rounded-full group-hover:h-1.5 transition-[height]" />
+          <div
+            class="absolute top-1/2 -translate-y-1/2 left-0 h-1 bg-white/40 rounded-full group-hover:h-1.5 transition-[height]"
+            :style="{ width: bufferedPercent + '%' }"
+          />
           <div
             class="absolute top-1/2 -translate-y-1/2 left-0 h-1 bg-primary-from rounded-full group-hover:h-1.5 transition-[height]"
             :style="{ width: progressPercent + '%' }"
@@ -173,9 +191,11 @@ const apiBase = config.public.apiBase
 const isPlaying = ref(false)
 const isPaused = ref(false)
 const isMuted = ref(false)
+const isLoading = ref(false)
 const currentTime = ref(0)
 const duration = ref(0)
 const progressPercent = ref(0)
+const bufferedPercent = ref(0)
 const hoverTime = ref<number | null>(null)
 const hoverPos = ref(0)
 const isFullscreen = ref(false)
@@ -183,13 +203,21 @@ const progressBar = ref<HTMLElement | null>(null)
 const videoPlayer = ref<HTMLVideoElement | null>(null)
 const audioPlayer = ref<HTMLAudioElement | null>(null)
 let ignoreSync = false
+let pendingAudioPlay = false
+let lastUserSeekAt = 0
+let syncAdjusting = false
+// Handle to the seek-readiness poll started by onUp. Module-level so a new
+// drag (mousedown) can cancel the previous drag's pending poll — prevents
+// stale polls from firing audio.play() at the wrong moment during rapid
+// back-and-forth dragging.
+let activeSeekPollId: ReturnType<typeof setInterval> | null = null
 
 const selectedQuality = computed({
   get: () => props.modelValue,
   set: (val) => emit('update:modelValue', val)
 })
 
-// Some platforms (Bilibili, Instagram) block direct thumbnail access — use proxy.
+// Some platforms (Bilibili, Instagram, YouTube) block direct thumbnail access — use proxy.
 // Local thumbnails (e.g. /api/thumbnail/xxx.jpg) are already served by the backend.
 const thumbnailUrl = computed(() => {
   const thumb = props.videoInfo.thumbnail
@@ -197,7 +225,7 @@ const thumbnailUrl = computed(() => {
   if (thumb.startsWith('/api/')) {
     return `${apiBase}${thumb}`
   }
-  const needsProxy = ['B站', 'Instagram', '小红书'].includes(props.videoInfo.platform)
+  const needsProxy = ['B站', 'Instagram', '小红书', 'YouTube'].includes(props.videoInfo.platform)
   if (needsProxy && /^https?:\/\//.test(thumb)) {
     return `${apiBase}/api/proxy/image?url=${encodeURIComponent(thumb)}`
   }
@@ -261,9 +289,11 @@ const qualityLabel = computed(() => {
 function stopAudio() {
   if (audioPlayer.value) {
     audioPlayer.value.pause()
+    audioPlayer.value.playbackRate = 1.0
     audioPlayer.value.removeAttribute('src')
     audioPlayer.value.load()
   }
+  syncAdjusting = false
 }
 
 function stopCurrentPreview() {
@@ -276,6 +306,7 @@ function stopCurrentPreview() {
   }
   stopAudio()
   isPaused.value = false
+  isLoading.value = false
   currentTime.value = 0
   duration.value = 0
   progressPercent.value = 0
@@ -288,7 +319,8 @@ function onVideoPlay() {
   isPaused.value = false
   startProgressLoop()
   if (ignoreSync || !audioPlayer.value?.src) return
-  audioPlayer.value.currentTime = videoPlayer.value!.currentTime
+  // Don't reset audio.currentTime here — pause-on-stall in onVideoWaiting
+  // keeps the two tracks aligned, and the smooth resync handles natural drift
   audioPlayer.value.play().catch(() => {})
 }
 
@@ -300,10 +332,41 @@ function onVideoPause() {
 }
 
 function onTimeUpdate() {
-  // Audio sync for DASH streams (skip during drag)
-  if (audioPlayer.value?.src && !ignoreSync && !isDragging) {
-    if (Math.abs(audioPlayer.value.currentTime - videoPlayer.value.currentTime) > 0.3) {
-      audioPlayer.value.currentTime = videoPlayer.value.currentTime
+  // Audio sync for DASH streams (skip during drag, and skip for 1s after a
+  // user seek so the audio and video align to the new position without
+  // snapping the audio back). Uses smooth playbackRate adjustment instead
+  // of jumping currentTime — avoids the audible "rewind" effect.
+  if (audioPlayer.value?.src && !ignoreSync && !isDragging && videoPlayer.value) {
+    const a = audioPlayer.value
+    const v = videoPlayer.value
+    const diff = a.currentTime - v.currentTime
+    if (Date.now() - lastUserSeekAt < 1000) {
+      if (a.currentTime > 0 && v.currentTime > 0) {
+        console.log('[sync] in 1s grace, diff=', diff.toFixed(3),
+          'v=', v.currentTime.toFixed(3),
+          'a=', a.currentTime.toFixed(3))
+      }
+      return
+    }
+    // Stepped rate based on drift magnitude. |diff| in (0.2, 1.0) is a
+    // hysteresis zone — keep current rate to avoid flapping.
+    let targetRate: number | null = null
+    if (Math.abs(diff) < 0.2) {
+      targetRate = 1.0
+    } else if (Math.abs(diff) > 1.0) {
+      targetRate = diff > 0 ? 0.9 : 1.1
+    }
+    if (targetRate !== null) {
+      targetRate = Math.max(0.8, Math.min(1.2, targetRate))
+      if (Math.abs(a.playbackRate - targetRate) > 0.01) {
+        const prev = a.playbackRate
+        a.playbackRate = targetRate
+        syncAdjusting = targetRate !== 1.0
+        console.log('[sync] rate', prev.toFixed(2), '→', targetRate.toFixed(2),
+          'diff=', diff.toFixed(3),
+          'v=', v.currentTime.toFixed(3),
+          'a=', a.currentTime.toFixed(3))
+      }
     }
   }
 }
@@ -317,6 +380,16 @@ function startProgressLoop() {
       currentTime.value = videoPlayer.value.currentTime
       if (videoPlayer.value.duration) {
         progressPercent.value = (videoPlayer.value.currentTime / videoPlayer.value.duration) * 100
+        const buffered = videoPlayer.value.buffered
+        const t = videoPlayer.value.currentTime
+        let bufferedEnd = 0
+        for (let i = 0; i < buffered.length; i++) {
+          if (buffered.start(i) <= t && t <= buffered.end(i)) {
+            bufferedEnd = buffered.end(i)
+            break
+          }
+        }
+        bufferedPercent.value = (bufferedEnd / videoPlayer.value.duration) * 100
       }
     }
     rafId = requestAnimationFrame(tick)
@@ -330,6 +403,56 @@ function stopProgressLoop() {
 function onLoadedMetadata() {
   if (!videoPlayer.value) return
   duration.value = videoPlayer.value.duration || 0
+}
+
+// First frame is ready — hide the loading spinner
+function onLoadedData() {
+  isLoading.value = false
+}
+
+// Browser can start/resume playback — hide spinner after buffering or seek
+function onCanPlay() {
+  isLoading.value = false
+}
+
+// Seek completed, new frame is ready at the new position
+function onSeeked() {
+  isLoading.value = false
+  // Skip the fast-path while the user is mid-drag — each seekTo() during
+  // drag completes a seek and fires `seeked`, but the target position is
+  // still changing. Wait for mouseup → onUp's poll to handle audio start.
+  if (pendingAudioPlay && !isDragging) {
+    const v = videoPlayer.value
+    const a = audioPlayer.value
+    // Only fast-path the audio start when the video has buffered enough to
+    // play continuously (readyState >= 3 = HAVE_FUTURE_DATA). When seeking
+    // into an unbuffered region, `seeked` can fire as soon as the browser
+    // renders the first frame at the target position — but readyState may
+    // still be 2, meaning video will freeze again the moment audio starts.
+    // In that case, leave pendingAudioPlay = true and let the polling loop
+    // in onUp catch the readyState transition.
+    if (v && a && v.readyState >= 3) {
+      pendingAudioPlay = false
+      a.playbackRate = 1.0
+      syncAdjusting = false
+      a.currentTime = v.currentTime
+      console.log('[seek.onSeeked] ready (readyState=', v.readyState, ') → playing audio',
+        'video.currentTime=', v.currentTime.toFixed(3),
+        'audio.currentTime=', a.currentTime.toFixed(3))
+      a.play().catch(() => {})
+    } else if (v) {
+      console.log('[seek.onSeeked] not ready yet (readyState=', v.readyState, ') — waiting for poll')
+    }
+  }
+}
+
+// Mid-playback buffering — re-show the spinner and pause audio so the
+// two tracks don't drift apart while the video catches up on data
+function onVideoWaiting() {
+  if (videoPlayer.value && !videoPlayer.value.paused) {
+    isLoading.value = true
+    audioPlayer.value?.pause()
+  }
 }
 
 // Custom control functions
@@ -382,15 +505,107 @@ function seekTo(e: MouseEvent) {
 
 let isDragging = false
 function onProgressMouseDown(e: MouseEvent) {
+  // Cancel any in-flight seek poll from the previous drag — its target
+  // position is now stale, and we don't want it racing the new drag's onUp.
+  if (activeSeekPollId !== null) {
+    clearInterval(activeSeekPollId)
+    activeSeekPollId = null
+  }
+  // Clear stale flags from the previous drag so onSeeked/poll paths don't
+  // fire audio.play() at an intermediate position during this drag.
+  pendingAudioPlay = false
   isDragging = true
-  if (audioPlayer.value) audioPlayer.value.pause()
+  if (audioPlayer.value) {
+    audioPlayer.value.pause()
+    // Reset rate so any prior smooth-resync adjustment doesn't carry over
+    audioPlayer.value.playbackRate = 1.0
+    syncAdjusting = false
+  }
   seekTo(e)
   const onMove = (ev: MouseEvent) => { if (isDragging) seekTo(ev) }
   const onUp = () => {
     isDragging = false
-    if (audioPlayer.value?.src && !videoPlayer.value?.paused) {
-      audioPlayer.value.currentTime = videoPlayer.value!.currentTime
-      audioPlayer.value.play().catch(() => {})
+    lastUserSeekAt = Date.now()
+    if (audioPlayer.value?.src && videoPlayer.value && !videoPlayer.value.paused) {
+      const target = videoPlayer.value.currentTime
+      // Reset rate to 1.0 — any prior drift adjustment shouldn't carry over
+      audioPlayer.value.playbackRate = 1.0
+      syncAdjusting = false
+      console.log('[seek.onUp] target=', target.toFixed(3),
+        'video.seeking=', videoPlayer.value.seeking,
+        'audio.seeking=', audioPlayer.value.seeking,
+        'audio.currentTime(before)=', audioPlayer.value.currentTime.toFixed(3))
+      audioPlayer.value.currentTime = target
+      console.log('[seek.onUp] audio.currentTime(after)=', audioPlayer.value.currentTime.toFixed(3))
+      if (videoPlayer.value.seeking) {
+        pendingAudioPlay = true
+        console.log('[seek.onUp] video still seeking → polling for readyState >= 3 (15s safety)')
+        // Cancel any earlier poll first — only one should ever be active so a
+        // stale tick from a previous drag can't fire audio.play().
+        if (activeSeekPollId !== null) {
+          clearInterval(activeSeekPollId)
+          activeSeekPollId = null
+        }
+        // Poll every 200ms until the video has buffered enough to play
+        // forward continuously (readyState >= 3 = HAVE_FUTURE_DATA) AND is
+        // no longer seeking. Only then is it safe to start audio — otherwise
+        // audio plays ahead while video stays frozen, then smooth resync
+        // slows the audio for ~10s to converge.
+        // Safety net: give up after 15s and play audio anyway so it doesn't
+        // disappear silently on a permanently stuck stream.
+        let waitedMs = 0
+        const pollMs = 200
+        const maxWaitMs = 15000
+        const pollId = setInterval(() => {
+          // If user started a new drag, wait it out — the new onUp will set
+          // up a fresh poll (and mousedown will have cancelled this one,
+          // but guard defensively in case of timing edge cases).
+          if (isDragging) return
+          if (!pendingAudioPlay) {
+            clearInterval(pollId)
+            if (activeSeekPollId === pollId) activeSeekPollId = null
+            return
+          }
+          const v = videoPlayer.value
+          const a = audioPlayer.value
+          if (!v || !a) {
+            clearInterval(pollId)
+            if (activeSeekPollId === pollId) activeSeekPollId = null
+            pendingAudioPlay = false
+            return
+          }
+          waitedMs += pollMs
+          const ready = !v.seeking && v.readyState >= 3
+          const timedOut = waitedMs >= maxWaitMs
+          if (ready || timedOut) {
+            clearInterval(pollId)
+            if (activeSeekPollId === pollId) activeSeekPollId = null
+            pendingAudioPlay = false
+            // Skip if user paused or started a new drag during the wait
+            if (v.paused || isDragging) {
+              console.log('[seek.onUp] poll done but', v.paused ? 'video paused' : 'isDragging', '— not starting audio')
+              return
+            }
+            // Re-sync to video's actual current position. During the wait,
+            // video may have advanced (rare) or stayed put (common).
+            a.currentTime = v.currentTime
+            a.playbackRate = 1.0
+            syncAdjusting = false
+            // Update lastUserSeekAt so onTimeUpdate's 1s grace covers the
+            // re-sync moment — avoids spurious rate adjustments right after
+            // audio starts.
+            lastUserSeekAt = Date.now()
+            console.log('[seek.onUp] poll', ready ? 'ready' : 'TIMEOUT', 'after', waitedMs, 'ms',
+              '— playing audio at', v.currentTime.toFixed(3),
+              'readyState=', v.readyState)
+            a.play().catch(() => {})
+          }
+        }, pollMs)
+        activeSeekPollId = pollId
+      } else {
+        audioPlayer.value.play().catch(() => {})
+        console.log('[seek.onUp] video not seeking → playing audio now')
+      }
     }
     window.removeEventListener('mousemove', onMove)
     window.removeEventListener('mouseup', onUp)
@@ -416,9 +631,10 @@ function formatTime(seconds: number): string {
 
 
 function getVideoUrl(url: string): string {
-  // Proxy video through backend to set proper Referer headers for CDNs
-  // Bilibili / 小红书: require Referer header, must proxy
-  const needsProxy = ['B站', '小红书'].includes(props.videoInfo.platform)
+  // Proxy video through backend to set proper Referer headers and bypass GFW.
+  // Bilibili / 小红书: require Referer header.
+  // YouTube: googlevideo.com is GFW-blocked, browser can't fetch directly.
+  const needsProxy = ['B站', '小红书', 'YouTube'].includes(props.videoInfo.platform)
   if (needsProxy) {
     return `${apiBase}/api/proxy/stream?url=${encodeURIComponent(url)}`
   }
@@ -426,8 +642,9 @@ function getVideoUrl(url: string): string {
 }
 
 function getAudioUrl(url: string): string {
-  // Bilibili / 小红书 audio CDN also requires Referer — proxy it
-  const needsProxy = ['B站', '小红书'].includes(props.videoInfo.platform)
+  // Same proxy needs as the video URL — Bilibili / 小红书 / YouTube audio CDNs
+  // all require either Referer or a server-side fetch (GFW).
+  const needsProxy = ['B站', '小红书', 'YouTube'].includes(props.videoInfo.platform)
   if (needsProxy) {
     return `${apiBase}/api/proxy/stream?url=${encodeURIComponent(url)}`
   }
@@ -442,24 +659,36 @@ function getPreviewStreamUrl(): string {
 async function startPreview() {
   stopCurrentPreview()
   isPlaying.value = true
+  isLoading.value = true
 
   await nextTick()
 
   const fmt = props.videoInfo.formats[selectedFormatIndex.value]
-  if (!fmt?.url) return
-
-  if (fmt.audio_url) {
-    // DASH-separated streams: use hidden <audio> element synced with <video>
-    audioPlayer.value!.src = getAudioUrl(fmt.audio_url)
+  if (!fmt?.url) {
+    isLoading.value = false
+    return
   }
 
-  // Platforms that need server-side download+merge for preview
-  if (['TikTok', '抖音', 'X'].includes(props.videoInfo.platform)) {
+  // Use server-side (yt-dlp download+merge) when:
+  // 1. Platform blocks direct CDN access AND blocks the proxy (TikTok/抖音/X).
+  //    Server-side gives a single merged mp4 — no sync issues.
+  // 2. For B站/小红书/YouTube (DASH-separated, but our proxy can reach the CDN),
+  //    use the frontend dual-track instead. Proxying through the backend
+  //    eliminates the GFW bottleneck that the server-side path has — the proxy
+  //    stream runs at full backend bandwidth, not 50-200KB/s through Clash.
+  const dualTrackPlatforms = ['B站', '小红书', 'YouTube']
+  const useServerSide =
+    !dualTrackPlatforms.includes(props.videoInfo.platform) &&
+    (!!fmt.audio_url || ['TikTok', '抖音', 'X'].includes(props.videoInfo.platform))
+
+  if (useServerSide) {
     videoPlayer.value!.src = getPreviewStreamUrl()
   } else {
     videoPlayer.value!.src = getVideoUrl(fmt.url)
+    if (fmt.audio_url) {
+      audioPlayer.value!.src = getAudioUrl(fmt.audio_url)
+    }
   }
-
 }
 
 // Reset playback state when a new video is parsed
@@ -481,6 +710,7 @@ onBeforeUnmount(() => {
 })
 
 const onVideoError = () => {
+  isLoading.value = false
   alert('视频预览加载失败，请尝试其他清晰度或重新解析')
   isPlaying.value = false
 }
