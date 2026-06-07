@@ -1,3 +1,5 @@
+from unittest.mock import MagicMock
+
 import pytest
 
 from services.summarizer import (
@@ -127,3 +129,74 @@ def test_extract_bilibili_real_video():
     assert len(result["segments"]) > 0
     assert result["segments"][0]["start"] >= 0
     assert result["segments"][0]["text"]  # non-empty
+
+
+def test_extract_returns_bilibili_result(monkeypatch):
+    """When B站 extractor returns a result, use it directly without calling yt-dlp."""
+    from services.summarizer import SubtitleExtractor
+
+    bilibili_result = {
+        "has_subtitle": True, "language": "zh-Hans", "subtitle_type": "manual",
+        "is_target_language": True, "fallback_mode": None,
+        "segments": [{"start": 0.0, "end": 1.0, "text": "你好"}],
+        "full_text": "你好",
+    }
+    monkeypatch.setattr("services.summarizer._extract_bilibili", lambda url: bilibili_result)
+    monkeypatch.setattr("services.summarizer._get_video_info", MagicMock())
+
+    result = SubtitleExtractor().extract("https://www.bilibili.com/video/BV1xx")
+    assert result["has_subtitle"] is True
+    assert result["language"] == "zh-Hans"
+
+
+def test_extract_falls_back_to_ytdlp_for_non_bilibili(monkeypatch):
+    """YouTube URLs go through yt-dlp; subtitles selected by priority."""
+    from services.summarizer import SubtitleExtractor
+
+    fake_info = {
+        "subtitles": {"zh-Hans": [{"ext": "vtt", "url": "u1"}]},
+        "automatic_captions": {"en": [{"ext": "vtt", "url": "u2"}]},
+    }
+    monkeypatch.setattr("services.summarizer._get_video_info", lambda url: fake_info)
+    monkeypatch.setattr(
+        "services.summarizer._download_and_parse",
+        lambda url, lang, sub_type: [{"start": 0.0, "end": 1.0, "text": f"text-{lang}"}],
+    )
+
+    result = SubtitleExtractor().extract("https://www.youtube.com/watch?v=xxx", language="zh")
+    assert result["has_subtitle"] is True
+    assert result["language"] == "zh-Hans"
+    assert result["is_target_language"] is True
+    assert result["full_text"] == "text-zh-Hans"
+
+
+def test_extract_no_subtitles_anywhere_returns_metadata_fallback(monkeypatch):
+    """No subtitles + no metadata at all → has_subtitle=False, fallback_mode=None (caller decides)."""
+    from services.summarizer import SubtitleExtractor
+
+    fake_info = {"subtitles": {}, "automatic_captions": {}}
+    monkeypatch.setattr("services.summarizer._get_video_info", lambda url: fake_info)
+
+    result = SubtitleExtractor().extract("https://www.youtube.com/watch?v=xxx")
+    assert result["has_subtitle"] is False
+    assert result["language"] == ""
+    assert result["full_text"] == ""
+
+
+def test_extract_truncates_full_text_to_15000_chars(monkeypatch):
+    from services.summarizer import SubtitleExtractor
+
+    long_text = "x" * 20000
+    fake_info = {
+        "subtitles": {"zh": [{"ext": "vtt", "url": "u1"}]},
+        "automatic_captions": {},
+    }
+    monkeypatch.setattr("services.summarizer._get_video_info", lambda url: fake_info)
+    monkeypatch.setattr(
+        "services.summarizer._download_and_parse",
+        lambda url, lang, sub_type: [{"start": 0.0, "end": 1.0, "text": long_text}],
+    )
+
+    result = SubtitleExtractor().extract("https://www.youtube.com/watch?v=xxx", language="zh")
+    assert len(result["full_text"]) == 15000
+

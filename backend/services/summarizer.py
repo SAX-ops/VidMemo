@@ -1,9 +1,13 @@
 """AI 视频总结模块：字幕提取 + LLM 总结 + Mock + 缓存。"""
 
+import json
+import os
 import re
+import tempfile
 from typing import Optional
 
 import httpx
+from yt_dlp import YoutubeDL
 
 
 def _is_bilibili_url(url: str) -> bool:
@@ -178,3 +182,78 @@ def _extract_bilibili(url: str) -> dict:
         }
     except Exception:
         return empty
+
+
+MAX_SUBTITLE_CHARS = 15000
+
+
+class SubtitleExtractor:
+    """Public entry point: extract subtitles from any supported video URL."""
+
+    def extract(self, url: str, language: str = "zh") -> dict:
+        if _is_bilibili_url(url):
+            result = _extract_bilibili(url)
+            if result["has_subtitle"]:
+                if len(result["full_text"]) > MAX_SUBTITLE_CHARS:
+                    result["full_text"] = result["full_text"][:MAX_SUBTITLE_CHARS]
+                return result
+
+        info = _get_video_info(url)
+        manual = (info.get("subtitles") or {})
+        auto = (info.get("automatic_captions") or {})
+        manual = {k: v for k, v in manual.items() if k != "danmaku"}
+
+        lang, sub_url, sub_type, is_target = _pick_best_subtitle(manual, auto, language)
+        if not sub_url:
+            return {
+                "has_subtitle": False, "language": "", "subtitle_type": "none",
+                "is_target_language": False, "fallback_mode": None,
+                "segments": [], "full_text": "",
+            }
+
+        segments = _download_and_parse(url, lang, sub_type)
+        full_text = " ".join(s["text"] for s in segments)
+        if len(full_text) > MAX_SUBTITLE_CHARS:
+            full_text = full_text[:MAX_SUBTITLE_CHARS]
+
+        return {
+            "has_subtitle": True,
+            "language": lang,
+            "subtitle_type": sub_type,
+            "is_target_language": is_target,
+            "fallback_mode": None,
+            "segments": segments,
+            "full_text": full_text,
+        }
+
+
+def _get_video_info(url: str) -> dict:
+    ydl_opts = {
+        "quiet": True, "no_warnings": True, "noplaylist": True,
+        "extract_flat": False, "writesubtitles": True, "writeautomaticsub": True,
+        "skip_download": True,
+    }
+    with YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(url, download=False)
+    if not info:
+        raise ValueError("无法解析该视频链接")
+    return info
+
+
+def _download_and_parse(url: str, lang: str, sub_type: str) -> list[dict]:
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        ydl_opts = {
+            "quiet": True, "no_warnings": True, "noplaylist": True,
+            "skip_download": True,
+            "writesubtitles": sub_type == "manual",
+            "writeautomaticsub": sub_type == "auto",
+            "subtitleslangs": [lang],
+            "subtitlesformat": "vtt",
+            "outtmpl": os.path.join(tmp_dir, "subtitle"),
+        }
+        with YoutubeDL(ydl_opts) as ydl:
+            ydl.download([url])
+        vtt_files = [f for f in os.listdir(tmp_dir) if f.endswith(".vtt")]
+        if not vtt_files:
+            return []
+        return _parse_vtt(os.path.join(tmp_dir, vtt_files[0]))
