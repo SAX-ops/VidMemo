@@ -1,3 +1,4 @@
+import os
 from unittest.mock import MagicMock
 
 import pytest
@@ -226,4 +227,33 @@ def test_extract_truncates_full_text_to_15000_chars(monkeypatch):
 
     result = SubtitleExtractor().extract("https://www.youtube.com/watch?v=xxx", language="zh")
     assert len(result["full_text"]) == 15000
+
+
+def test_build_summarizer_raises_without_api_key_when_not_mock(monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setenv("SUMMARY_MOCK", "false")
+
+    from services.summarizer import build_summarizer
+    with pytest.raises(ValueError, match="OPENAI_API_KEY"):
+        build_summarizer()
+
+
+def test_build_summarizer_returns_mock_when_env_set(monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setenv("SUMMARY_MOCK", "true")
+
+    from services.summarizer import build_summarizer, MockSummarizer
+    s = build_summarizer()
+    assert isinstance(s, MockSummarizer)
+
+
+def test_build_summarizer_returns_real_with_api_key(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    monkeypatch.setenv("SUMMARY_MOCK", "false")
+
+    from services.summarizer import build_summarizer, VideoSummarizer
+    s = build_summarizer()
+    assert isinstance(s, VideoSummarizer)
+
 

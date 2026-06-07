@@ -256,3 +256,51 @@ def _download_and_parse(url: str, lang: str, sub_type: str) -> list[dict]:
         if not vtt_files:
             return []
         return _parse_vtt(os.path.join(tmp_dir, vtt_files[0]))
+
+
+def build_summarizer():
+    """Return a real VideoSummarizer or a MockSummarizer based on env."""
+    if os.getenv("SUMMARY_MOCK", "false").lower() == "true":
+        return MockSummarizer()
+    return VideoSummarizer()
+
+
+class VideoSummarizer:
+    def __init__(self):
+        from openai import OpenAI
+
+        api_key = os.getenv("OPENAI_API_KEY", "")
+        if not api_key:
+            raise ValueError("OPENAI_API_KEY environment variable is not set (or set SUMMARY_MOCK=true)")
+        base_url = os.getenv("SUMMARY_BASE_URL") or None
+        self.client = OpenAI(api_key=api_key, base_url=base_url)
+        self.model = os.getenv("SUMMARY_MODEL", "gpt-4o-mini")
+        self.timeout = int(os.getenv("SUMMARY_TIMEOUT", "90"))
+
+
+class MockSummarizer:
+    """Canned summary emitter for offline dev and tests."""
+
+    DELAY_MS = int(os.getenv("SUMMARY_MOCK_DELAY_MS", "50"))
+
+    BODY = (
+        "## 视频概述\n"
+        "这是一个 mock 视频总结，用于离线开发调试。\n\n"
+        "## 内容大纲\n"
+        "本视频包含若干章节，mock 模式下不会调用真实 LLM。\n\n"
+        "## 核心知识要点\n"
+        "1. Mock 模式不消耗 token\n"
+        "2. 默认每个 token 间隔 50ms\n"
+        "3. 总结时间可由 SUMMARY_MOCK_DELAY_MS 调整\n\n"
+        "## 总结\n"
+        "Mock 总结由 SUMMARY_MOCK=true 启用，便于无 API key 时调试前端。\n\n"
+        "```json\n"
+        '{"chapters": [{"time": 0, "title": "开场"}, {"time": 90, "title": "主题展开"}, {"time": 300, "title": "总结回顾"}]}\n'
+        "```\n"
+    )
+    CHAPTERS = [
+        {"time": 0, "title": "开场"},
+        {"time": 90, "title": "主题展开"},
+        {"time": 300, "title": "总结回顾"},
+    ]
+
