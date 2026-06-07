@@ -35,6 +35,22 @@ npx nuxi dev                                                      # Start dev se
 npx nuxi build                                                    # Production build
 ```
 
+### E2E Tests (Playwright)
+
+```bash
+cd frontend
+PROXY_AVAILABLE=1 npx playwright test --project=chromium     # Run all e2e tests
+npx playwright test video-preview.spec.ts -g "B站"            # Run a single platform
+CI=1 npx playwright test                                       # CI mode (retries=0)
+```
+
+Pre-requisites:
+- Backend running on `localhost:8000` (skips whole file if unreachable)
+- Frontend running on `localhost:3000` (started separately)
+- `PROXY_AVAILABLE=1` for YouTube / TikTok tests (skips them otherwise)
+
+Tests are integration-only — they hit the real backend, real proxy, and real video CDNs. Failure messages distinguish between "platform rejected" (skip), "infrastructure down" (skip), and "real bug" (fail). See `docs/superpowers/specs/2026-06-07-video-preview-e2e-design.md` for the full design.
+
 ## Architecture
 
 ### Backend (`backend/`)
