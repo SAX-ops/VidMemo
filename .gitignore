@@ -61,6 +61,10 @@ backend/downloads/
 backend/previews/
 backend/thumbnails/
 
+# pytest
+.pytest_cache/
+backend/.pytest_cache/
+
 # Test files
 test-*.mjs
 test-*.png

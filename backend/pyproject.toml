@@ -1,7 +1,7 @@
 [project]
 name = "backend"
 version = "0.1.0"
-description = "Add your description here"
+description = "VidSumAI backend - FastAPI server for multi-platform video downloading"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [

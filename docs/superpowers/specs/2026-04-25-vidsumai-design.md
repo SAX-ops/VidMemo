@@ -164,49 +164,6 @@ POST /api/open-folder
   - 输出：{ success: true }
 ```
 
-### 数据模型
-
-```python
-class VideoInfo:
-    title: str
-    thumbnail: str
-    duration: int  # 秒
-    platform: str  # "YouTube", "TikTok", etc.
-    formats: list[Format]
-
-class Format:
-    quality: str  # "1080p", "720p", etc.
-    ext: str      # "mp4", "webm", etc.
-    size: int     # bytes
-    url: str      # 直接播放 URL（预览用）
-
-class DownloadTask:
-    id: str
-    url: str
-    status: str  # "pending", "downloading", "completed", "failed"
-    progress: float  # 0-100
-```
-
-### 数据模型
-
-```python
-class VideoInfo:
-    title: str
-    thumbnail: str
-    formats: list[Format]
-
-class Format:
-    quality: str  # "1080p", "720p", etc.
-    ext: str      # "mp4", "webm", etc.
-    size: int     # bytes
-
-class DownloadTask:
-    id: str
-    url: str
-    status: str  # "pending", "downloading", "completed", "failed"
-    progress: float  # 0-100
-```
-
 ## 技术实现
 
 ### 后端 (Python FastAPI)
@@ -284,7 +241,8 @@ vidsumai/
 │   │   └── download.py   # 下载路由
 │   ├── services/
 │   │   └── ytdlp.py      # yt-dlp 封装
-│   └── requirements.txt
+│   ├── pyproject.toml    # Python 依赖（uv 管理）
+│   └── uv.lock
 └── docs/
     └── superpowers/
         └── specs/
