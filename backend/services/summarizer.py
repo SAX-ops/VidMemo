@@ -54,3 +54,55 @@ def _parse_vtt(filepath: str) -> list[dict]:
             })
 
     return segments
+
+
+PREFERRED_LANGS = ["zh-Hans", "zh", "zh-CN"]
+
+
+def _pick_best_subtitle(
+    manual_subs: dict, auto_subs: dict, target_lang: str = "zh"
+) -> tuple[str, Optional[str], str, bool]:
+    """Pick the best subtitle for `target_lang` with language fallback.
+
+    Returns (lang, url, type, is_target_language). `is_target_language` is False
+    when the chosen subtitle is not in the target language.
+    """
+    target_prefix = target_lang.split("-")[0]  # "zh" or "en"
+    preferred_for_target = [target_lang] + PREFERRED_LANGS if target_lang.startswith("zh") else [target_lang]
+
+    for lang in preferred_for_target:
+        if lang in manual_subs:
+            url = _first_format_url(manual_subs[lang])
+            if url:
+                return lang, url, "manual", True
+
+    for lang in preferred_for_target:
+        if lang in auto_subs:
+            url = _first_format_url(auto_subs[lang])
+            if url:
+                return lang, url, "auto", True
+
+    # Language fallback: any other language
+    if manual_subs:
+        first_lang = next(iter(manual_subs))
+        url = _first_format_url(manual_subs[first_lang])
+        if url:
+            return first_lang, url, "manual", first_lang.split("-")[0] == target_prefix
+
+    if auto_subs:
+        first_lang = next(iter(auto_subs))
+        url = _first_format_url(auto_subs[first_lang])
+        if url:
+            return first_lang, url, "auto", first_lang.split("-")[0] == target_prefix
+
+    return "", None, "none", False
+
+
+def _first_format_url(formats: list) -> Optional[str]:
+    """Pick the best format URL from a yt-dlp subtitle list (json3 > srv3 > vtt > ttml)."""
+    preferred = ["json3", "srv3", "vtt", "ttml"]
+    for pref in preferred:
+        for fmt in formats:
+            if fmt.get("ext") == pref:
+                return fmt.get("url")
+    return formats[0].get("url") if formats else None

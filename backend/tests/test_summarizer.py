@@ -1,4 +1,9 @@
-from services.summarizer import _is_bilibili_url, _parse_vtt, _time_to_seconds
+from services.summarizer import (
+    _is_bilibili_url,
+    _parse_vtt,
+    _pick_best_subtitle,
+    _time_to_seconds,
+)
 
 
 def test_is_bilibili_url_matches_domains():
@@ -67,3 +72,42 @@ def test_parse_vtt_dedup_consecutive(tmp_path):
     assert len(segs) == 2
     assert segs[0]["text"] == "Same text"
     assert segs[1]["text"] == "Different"
+
+
+def test_pick_prefers_manual_zh_hans():
+    manual = {
+        "en": [{"ext": "vtt", "url": "u-en"}],
+        "zh-Hans": [{"ext": "vtt", "url": "u-zh"}],
+    }
+    auto = {}
+    lang, url, kind, is_target = _pick_best_subtitle(manual, auto, "zh")
+    assert lang == "zh-Hans"
+    assert url == "u-zh"
+    assert kind == "manual"
+    assert is_target is True
+
+
+def test_pick_falls_back_to_other_lang_with_flag():
+    manual = {"en": [{"ext": "vtt", "url": "u-en"}]}
+    auto = {}
+    lang, url, kind, is_target = _pick_best_subtitle(manual, auto, "zh")
+    assert lang == "en"
+    assert url == "u-en"
+    assert kind == "manual"
+    assert is_target is False
+
+
+def test_pick_falls_back_to_auto_when_no_manual():
+    manual = {}
+    auto = {"zh-Hans": [{"ext": "vtt", "url": "u-zh-auto"}]}
+    lang, url, kind, is_target = _pick_best_subtitle(manual, auto, "zh")
+    assert lang == "zh-Hans"
+    assert kind == "auto"
+    assert is_target is True
+
+
+def test_pick_returns_empty_when_no_subtitles():
+    lang, url, kind, is_target = _pick_best_subtitle({}, {}, "zh")
+    assert lang == ""
+    assert url is None
+    assert is_target is False
