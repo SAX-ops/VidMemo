@@ -60,6 +60,7 @@ venv/
 backend/downloads/
 backend/previews/
 backend/thumbnails/
+backend/summary_cache.json
 
 # pytest
 .pytest_cache/
