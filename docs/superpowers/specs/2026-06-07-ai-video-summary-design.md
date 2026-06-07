@@ -10,6 +10,7 @@
 |---|---|---|
 | 1 | 2026-06-07 | Initial design |
 | 2 | 2026-06-07 | Review revisions: (1) metadata fallback when no subtitles (§3.4.2, §3.6); (2) strict prompt with dynamic chapter count + structured JSON output (§3.4); (3) file-based summary cache, 30-day TTL (§3.8); (4) `setCurrentTime`/`play` expose checklist (§4.5); (5) subtitle language fallback with UI banner (§3.2, §4.3); (6) SSE connection abort on unmount + re-click (§4.3, §4.4); (7) LLM timeout raised to 90s, dynamic for long subs (§3.3); (8) auto-play on chapter click (§4.6); (9) `SUMMARY_MOCK=true` for offline dev (§3.9); (10) Bilibili visitor-mode limitations documented (§4.7) |
+| 3 | 2026-06-07 | Review additions: (a) `onChapterClick` swallows `NotAllowedError` from `play()` (§4.6); (b) chapter JSON parse failure logs WARNING, not ERROR, and emits empty `chapters` without aborting the stream (§3.4.3); (c) `SUMMARY_MOCK_DELAY_MS` default 50ms, 0 for tests (§3.7, §3.9) |
 
 ---
 
@@ -254,7 +255,7 @@ The SSE handler does the following in order:
 2. Split `summary_md` on the first ```` ```json ```` block:
    - Everything before = markdown body (sent to frontend as-is via `summary` event tokens)
    - The code block content = chapter JSON
-3. Parse the JSON with `json.loads`. If parsing fails, fall back to an empty `chapters` list and log a warning — the markdown body is still useful.
+3. Parse the JSON with `json.loads`. **On parse failure, log a `WARNING` (not `ERROR`) and emit `chapters` with an empty array** — the markdown body is still rendered to the user; only the clickable chapter list is empty. The SSE stream must not abort on chapter-parse failure (a 90-second LLM call should not be wasted because the LLM forgot a trailing comma).
 4. Emit one `chapters` SSE event with the parsed `{"chapters": [...]}`.
 
 This means the frontend **never parses timestamps from markdown** — it always gets them from the structured `chapters` event, so the regex fragility the user flagged is eliminated.
@@ -316,6 +317,7 @@ OPENAI_API_KEY=sk-xxx
 SUMMARY_MODEL=gpt-4o-mini
 # SUMMARY_BASE_URL=https://api.deepseek.com   # uncomment to use DeepSeek
 SUMMARY_MOCK=false                            # set true for offline dev
+SUMMARY_MOCK_DELAY_MS=50                      # per-token yield rate; 0 for instant tests
 SUMMARY_TIMEOUT=90                            # seconds (dynamic for long subs)
 
 # Cache (see §3.8)
@@ -361,7 +363,7 @@ When `SUMMARY_MOCK=true`:
 - The `chapters` event fires with 3 fake chapters at `0s`, `90s`, `300s`
 - Useful for frontend development, Playwright tests, and demos without burning API credits
 
-Mock data lives in `services/summarizer.py` as a module-level constant `MOCK_SUMMARY_BODY` and `MOCK_CHAPTERS`. The token yield rate (default 50ms) is configurable via `SUMMARY_MOCK_DELAY_MS` for faster tests.
+Mock data lives in `services/summarizer.py` as a module-level constant `MOCK_SUMMARY_BODY` and `MOCK_CHAPTERS`. The token yield rate is configurable via `SUMMARY_MOCK_DELAY_MS` — **default 50 ms per token** (≈ 3 s total to stream the mock body, so the UI's loading spinner is visible long enough to validate), **`0` for tests** (instant, no spinner visible).
 
 Mock mode **bypasses the cache** (no need to cache mock data) and **bypasses the B站 cookie path** (uses a hardcoded mock URL).
 
@@ -481,10 +483,18 @@ The existing internal `currentTime` ref stays as-is — it just gets read extern
   ```ts
   function onChapterClick(t: number) {
     videoPreviewRef.value?.setCurrentTime(t)
-    videoPreviewRef.value?.play()  // auto-play if user clicked a chapter expecting playback
+    // play() returns a Promise; browsers reject with NotAllowedError when
+    // autoplay is blocked (e.g. muted=false + no user-gesture context).
+    // We deliberately swallow that error: the user can still press play
+    // manually, and we don't want a console error from a chapter click.
+    videoPreviewRef.value?.play()?.catch((err) => {
+      if (err?.name !== 'NotAllowedError') {
+        console.warn('VideoPreview.play() failed:', err)
+      }
+    })
   }
   ```
-  Rationale: clicking a chapter is an intent to "watch this part now"; auto-play is the expected behavior (matches YouTube's own chapter UI).
+  Rationale: clicking a chapter is an intent to "watch this part now"; auto-play is the expected behavior (matches YouTube's own chapter UI). The catch is needed because the click is on a UI element above the `<video>`, so the browser may not always consider it a "user gesture" for autoplay purposes.
 
 The summary panel is mounted only after first click (v-if), so the LLM token stream is not requested until the user actually wants it. When the panel is closed, `VideoSummary.vue`'s `onBeforeUnmount` aborts the SSE connection (see §4.3).
 
