@@ -1,6 +1,5 @@
 """AI 视频总结模块：字幕提取 + LLM 总结 + Mock + 缓存。"""
 
-import json
 import os
 import re
 import tempfile

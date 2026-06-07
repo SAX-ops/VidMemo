@@ -142,11 +142,38 @@ def test_extract_returns_bilibili_result(monkeypatch):
         "full_text": "你好",
     }
     monkeypatch.setattr("services.summarizer._extract_bilibili", lambda url: bilibili_result)
-    monkeypatch.setattr("services.summarizer._get_video_info", MagicMock())
+    mock_info = MagicMock()
+    monkeypatch.setattr("services.summarizer._get_video_info", mock_info)
 
     result = SubtitleExtractor().extract("https://www.bilibili.com/video/BV1xx")
     assert result["has_subtitle"] is True
     assert result["language"] == "zh-Hans"
+    assert not mock_info.called  # B站 short-circuit: yt-dlp must not be called
+
+
+def test_extract_falls_through_to_ytdlp_when_bilibili_empty(monkeypatch):
+    """B站 returns no subtitles → fall through to yt-dlp path."""
+    from services.summarizer import SubtitleExtractor
+
+    empty_bili = {
+        "has_subtitle": False, "language": "", "subtitle_type": "none",
+        "is_target_language": True, "fallback_mode": None, "segments": [], "full_text": "",
+    }
+    fake_info = {
+        "subtitles": {"zh-Hans": [{"ext": "vtt", "url": "u1"}]},
+        "automatic_captions": {},
+    }
+    monkeypatch.setattr("services.summarizer._extract_bilibili", lambda url: empty_bili)
+    monkeypatch.setattr("services.summarizer._get_video_info", lambda url: fake_info)
+    monkeypatch.setattr(
+        "services.summarizer._download_and_parse",
+        lambda url, lang, sub_type: [{"start": 0.0, "end": 1.0, "text": f"yt-{lang}"}],
+    )
+
+    result = SubtitleExtractor().extract("https://www.bilibili.com/video/BV1xx-no-sub", language="zh")
+    assert result["has_subtitle"] is True
+    assert result["language"] == "zh-Hans"
+    assert result["full_text"] == "yt-zh-Hans"
 
 
 def test_extract_falls_back_to_ytdlp_for_non_bilibili(monkeypatch):
