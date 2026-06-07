@@ -1,0 +1,21 @@
+* text=auto eol=lf
+
+# Binary files
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+
+# Generated / vendored
+backend/uv.lock linguist-generated=true
+frontend/package-lock.json linguist-generated=true
+package-lock.json linguist-generated=true
+
+# Python source
+*.py diff=python
+
+# Vue / TypeScript
+*.vue diff=html
+*.ts diff=javascript
