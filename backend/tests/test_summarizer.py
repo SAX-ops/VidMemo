@@ -1,3 +1,5 @@
+import pytest
+
 from services.summarizer import (
     _is_bilibili_url,
     _parse_vtt,
@@ -111,3 +113,17 @@ def test_pick_returns_empty_when_no_subtitles():
     assert lang == ""
     assert url is None
     assert is_target is False
+
+
+@pytest.mark.network
+def test_extract_bilibili_real_video():
+    """Hit the real B站 API. Skip when offline."""
+    from services.summarizer import _extract_bilibili
+
+    result = _extract_bilibili("https://www.bilibili.com/video/BV1GJ411x7h7")
+    assert result["has_subtitle"] is True
+    assert result["language"] in ("zh-Hans", "zh", "ai-zh")
+    assert result["subtitle_type"] in ("manual", "auto")
+    assert len(result["segments"]) > 0
+    assert result["segments"][0]["start"] >= 0
+    assert result["segments"][0]["text"]  # non-empty

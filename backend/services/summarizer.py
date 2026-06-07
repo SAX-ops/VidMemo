@@ -3,6 +3,8 @@
 import re
 from typing import Optional
 
+import httpx
+
 
 def _is_bilibili_url(url: str) -> bool:
     return "bilibili.com" in url or "b23.tv" in url
@@ -106,3 +108,73 @@ def _first_format_url(formats: list) -> Optional[str]:
             if fmt.get("ext") == pref:
                 return fmt.get("url")
     return formats[0].get("url") if formats else None
+
+
+def _extract_bilibili(url: str) -> dict:
+    """Extract CC / AI subtitles from a Bilibili video via the dm/view API.
+
+    Returns the same shape as `_pick_best_subtitle`: {has_subtitle, language, ...}.
+    """
+    empty = {
+        "has_subtitle": False, "language": "", "subtitle_type": "none",
+        "is_target_language": True, "fallback_mode": None, "segments": [], "full_text": "",
+    }
+    try:
+        m = re.search(r"(BV[a-zA-Z0-9]+)", url)
+        if not m:
+            return empty
+        bvid = m.group(1)
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Referer": f"https://www.bilibili.com/video/{bvid}",
+        }
+        view = httpx.get(
+            f"https://api.bilibili.com/x/web-interface/view?bvid={bvid}",
+            headers=headers, timeout=15,
+        ).json().get("data", {})
+        cid, aid = view.get("cid"), view.get("aid")
+        if not cid or not aid:
+            return empty
+        dm = httpx.get(
+            f"https://api.bilibili.com/x/v2/dm/view?aid={aid}&oid={cid}&type=1",
+            headers=headers, timeout=15,
+        ).json().get("data", {})
+        subtitle_list = dm.get("subtitle", {}).get("subtitles", [])
+        if not subtitle_list:
+            return empty
+        # Pick first zh/manual
+        best = subtitle_list[0]
+        for s in subtitle_list:
+            if s.get("lan", "") in ("zh", "zh-Hans"):
+                best = s
+                break
+        sub_url = best.get("subtitle_url", "")
+        if sub_url.startswith("//"):
+            sub_url = "https:" + sub_url
+        if sub_url.startswith("http://"):
+            sub_url = "https://" + sub_url[7:]
+        if not sub_url:
+            return empty
+        sub_json = httpx.get(sub_url, headers=headers, timeout=15).json()
+        body = sub_json.get("body", [])
+        segments = [
+            {
+                "start": round(item.get("from", 0), 2),
+                "end": round(item.get("to", 0), 2),
+                "text": item.get("content", "").strip(),
+            }
+            for item in body
+            if item.get("content", "").strip()
+        ]
+        full_text = " ".join(s["text"] for s in segments)
+        return {
+            "has_subtitle": True,
+            "language": best.get("lan", "zh"),
+            "subtitle_type": "auto" if best.get("lan", "").startswith("ai-") else "manual",
+            "is_target_language": True,
+            "fallback_mode": None,
+            "segments": segments,
+            "full_text": full_text,
+        }
+    except Exception:
+        return empty
