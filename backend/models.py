@@ -40,3 +40,29 @@ class ProgressUpdate(BaseModel):
     speed: str
     eta: str
     downloaded: str
+
+
+class SubtitleSegment(BaseModel):
+    start: float
+    end: float
+    text: str
+
+
+class SubtitleData(BaseModel):
+    has_subtitle: bool
+    language: str = ""
+    subtitle_type: str = "none"  # "manual" | "auto" | "none"
+    is_target_language: bool = True
+    fallback_mode: Optional[str] = None  # "metadata" when has_subtitle=False
+    segments: List[SubtitleSegment] = []
+    full_text: str = ""
+
+
+class Chapter(BaseModel):
+    time: int   # seconds
+    title: str
+
+
+class SummarizeRequest(BaseModel):
+    url: str
+    language: str = "zh"
