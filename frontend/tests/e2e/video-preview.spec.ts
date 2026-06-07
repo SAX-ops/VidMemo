@@ -140,4 +140,19 @@ test.describe('Video preview', () => {
       expect(audioSrc, 'B站 DASH audio src should be set').toBeTruthy()
     })
   })
+
+  test('YouTube plays via frontend dual-track through backend proxy', async ({ page }) => {
+    let proxyRequestSeen = false
+    page.on('request', req => {
+      const u = req.url()
+      if (u.includes('/api/proxy/stream') && u.includes('googlevideo.com')) {
+        proxyRequestSeen = true
+      }
+    })
+    await runPlatformTest(page, 'YouTube', YOUTUBE_URL, async (video, audio) => {
+      const audioSrc = await audio.getAttribute('src')
+      expect(audioSrc, 'YouTube DASH audio src should be set').toBeTruthy()
+      expect(proxyRequestSeen, 'YouTube should have proxied googlevideo through /api/proxy/stream').toBe(true)
+    })
+  })
 })
