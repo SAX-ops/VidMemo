@@ -8,6 +8,7 @@ import hashlib
 import os
 import re
 import subprocess
+import aiohttp
 import httpx
 import time
 from typing import Optional
@@ -302,7 +303,6 @@ async def proxy_stream(url: str = Query(...), range: Optional[str] = Header(None
         # Clash on Windows, leaving the browser with 206 status + 0-byte
         # body. aiohttp uses a different async network backend that handles
         # the proxy connection more gracefully.
-        import aiohttp
         timeout = aiohttp.ClientTimeout(total=60, sock_read=30)
         # trust_env=True tells aiohttp to read HTTP_PROXY/HTTPS_PROXY/NO_PROXY
         # from os.environ — same env vars that httpx picks up automatically.
@@ -349,7 +349,7 @@ async def proxy_stream(url: str = Query(...), range: Optional[str] = Header(None
             if not session.closed:
                 await session.close()
             raise
-    except httpx.RequestError as e:
+    except (httpx.RequestError, aiohttp.ClientError) as e:
         raise HTTPException(status_code=502, detail=f"Stream proxy error: {str(e)}")
 
 
