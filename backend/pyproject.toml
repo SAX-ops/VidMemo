@@ -5,6 +5,7 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
+    "aiohttp>=3.14.0",
     "fastapi>=0.136.1",
     "gmssl>=3.2.2",
     "httpx>=0.28.1",
@@ -12,4 +13,15 @@ dependencies = [
     "uvicorn>=0.46.0",
     "websockets>=16.0",
     "yt-dlp>=2026.3.17",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
+    "pytest-asyncio>=1.4.0",
+]
+
+[tool.pytest.ini_options]
+markers = [
+    "network: tests that require real network access to external services",
 ]
