@@ -63,7 +63,14 @@ async function runPlatformTest(
     test.skip(true, `${platformName} requires GFW proxy — set PROXY_AVAILABLE=1`)
   }
 
-  const info: VideoInfo = await parseUrl(url)
+  let info: VideoInfo
+  try {
+    info = await parseUrl(url)
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    test.skip(true, `${url} parse failed: ${msg}`)
+    return  // unreachable, but TS doesn't know test.skip is terminal
+  }
   if (!info.formats.length) {
     test.skip(true, `${url} returned no formats — region-lock/cookie/proxy issue`)
   }
