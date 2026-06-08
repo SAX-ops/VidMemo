@@ -312,8 +312,10 @@ class VideoSummarizer:
             timeout=self.timeout,
         )
         for chunk in response:
+            if not chunk.choices:
+                continue
             delta = chunk.choices[0].delta
-            if delta.content:
+            if delta and delta.content:
                 yield delta.content
 
 
