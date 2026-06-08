@@ -3,7 +3,6 @@
 import asyncio
 import json
 import os
-import re
 from collections.abc import AsyncIterable
 from datetime import datetime, timezone
 from pathlib import Path
@@ -12,6 +11,7 @@ from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+from services import summarizer as summarizer_service
 from services.summarizer import (
     SubtitleExtractor,
     build_summarizer,
@@ -96,8 +96,7 @@ async def _stream_summary(req: SummarizeRequest, cache: SummaryCache) -> AsyncIt
         # Try to get metadata for fallback
         video_meta: dict = {}
         try:
-            from services.summarizer import _get_video_info
-            info = await loop.run_in_executor(None, _get_video_info, req.url)
+            info = await loop.run_in_executor(None, summarizer_service._get_video_info, req.url)
             video_meta = {
                 "title": info.get("title", ""),
                 "duration": info.get("duration", 0) or 0,
@@ -126,16 +125,14 @@ async def _stream_summary(req: SummarizeRequest, cache: SummaryCache) -> AsyncIt
         }
         yield _sse("subtitle", subtitle)
 
-        # Continue with fallback prompt
+        # Continue with fallback prompt (chapters always empty for fallback)
         summarizer = build_summarizer()
-        accumulated: list[str] = []
         timeout = int(os.getenv("SUMMARY_TIMEOUT", "90"))
         try:
-            gen = _stream_fallback(summarizer, video_meta, req.language, timeout)
+            gen = _stream_fallback(summarizer, video_meta, req.language)
             while True:
                 try:
                     chunk = await asyncio.wait_for(gen.__anext__(), timeout=timeout)
-                    accumulated.append(_strip_data(chunk))
                     yield chunk
                 except StopAsyncIteration:
                     break
@@ -146,7 +143,6 @@ async def _stream_summary(req: SummarizeRequest, cache: SummaryCache) -> AsyncIt
             yield _sse("error", {"message": f"AI 总结服务暂时不可用：{e}", "code": "llm_error"})
             return
 
-        # Chapters (always empty for fallback)
         yield _sse("chapters", {"chapters": []})
         yield _sse("done", "[DONE]")
         return
@@ -202,15 +198,8 @@ async def _stream_summary(req: SummarizeRequest, cache: SummaryCache) -> AsyncIt
     yield _sse("done", "[DONE]")
 
 
-def _strip_data(sse_chunk: str) -> str:
-    """Extract the data portion of an SSE chunk for accumulation."""
-    m = re.search(r"^data: (.*)$", sse_chunk, re.MULTILINE)
-    return m.group(1) if m else ""
-
-
-async def _stream_fallback(summarizer, video_meta: dict, language: str, timeout: int):
+async def _stream_fallback(summarizer, video_meta: dict, language: str):
     """Async wrapper around summarizer.summarize_stream(..., has_subtitle=False)."""
-    from services.summarizer import _build_fallback_prompt  # noqa: F401  (used in cache_meta future)
     gen = summarizer.summarize_stream(
         video_meta.get("title", ""),  # subtitle_text param (unused for fallback)
         language,
