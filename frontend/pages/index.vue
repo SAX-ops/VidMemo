@@ -56,11 +56,34 @@
       <!-- Video Preview -->
       <VideoPreview
         v-if="videoInfo"
+        ref="videoPreviewRef"
         :video-info="videoInfo"
         v-model="selectedQuality"
         :is-downloading="isDownloading"
         :download-progress="displayProgress"
         @download="handleDownload"
+      />
+
+      <!-- AI 总结 toggle -->
+      <div v-if="videoInfo" class="max-w-2xl mx-auto mt-3 flex justify-end">
+        <button
+          @click="showSummary = !showSummary"
+          class="px-4 py-2 rounded-lg text-sm font-medium transition-all"
+          :class="showSummary
+            ? 'bg-primary-from/20 text-primary-from border border-primary-from/30'
+            : 'bg-dark-card text-white border border-dark-border hover:border-primary-from/50'"
+        >
+          {{ showSummary ? '✕ 关闭 AI 总结' : '✨ AI 总结' }}
+        </button>
+      </div>
+
+      <!-- AI 总结 panel -->
+      <VideoSummary
+        v-if="showSummary && videoInfo"
+        :visible="showSummary"
+        :video-url="videoInfo.url"
+        :video-title="videoInfo.title"
+        @chapter-click="onChapterClick"
       />
 
       <!-- Progress Tracker -->
@@ -91,6 +114,7 @@
 
 <script setup lang="ts">
 import type { VideoInfo, ProgressUpdate } from '~/types'
+import VideoSummary from '~/components/VideoSummary.vue'
 
 const config = useRuntimeConfig()
 const apiBase = config.public.apiBase
@@ -101,6 +125,20 @@ const progress = ref<ProgressUpdate | null>(null)
 const taskId = ref<string | null>(null)
 const isDownloading = ref(false)
 const displayProgress = ref(0)
+const showSummary = ref(false)
+const videoPreviewRef = ref<InstanceType<typeof import('~/components/VideoPreview.vue').default> | null>(null)
+
+function onChapterClick(t: number) {
+  videoPreviewRef.value?.setCurrentTime(t)
+  // play() returns a Promise; browsers reject with NotAllowedError when
+  // autoplay is blocked. We deliberately swallow that error so a chapter
+  // click on certain browsers doesn't surface a console error.
+  videoPreviewRef.value?.play()?.catch((err) => {
+    if (err?.name !== 'NotAllowedError') {
+      console.warn('VideoPreview.play() failed:', err)
+    }
+  })
+}
 
 let ws: WebSocket | null = null
 
@@ -111,6 +149,7 @@ const handleParsed = (info: VideoInfo) => {
   displayProgress.value = 0
   taskId.value = null
   selectedQuality.value = info.formats[0]?.quality || '1080p'
+  showSummary.value = false
 
   // 关闭之前的 WebSocket
   if (ws) {
