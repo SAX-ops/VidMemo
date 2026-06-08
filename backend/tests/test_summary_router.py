@@ -130,3 +130,54 @@ async def test_full_flow_with_subtitles_emits_all_events(tmp_path, monkeypatch):
             assert isinstance(chapters_data["chapters"], list)
             from services.summarizer import MockSummarizer
             assert chapters_data["chapters"] == MockSummarizer.CHAPTERS
+
+
+@pytest.mark.asyncio
+async def test_no_subtitle_falls_back_to_metadata_prompt(tmp_path, monkeypatch):
+    """When subtitle extraction returns empty but yt-dlp gives us title/duration, use the metadata prompt."""
+    monkeypatch.setenv("SUMMARY_CACHE_PATH", str(tmp_path / "cache.json"))
+    monkeypatch.setenv("SUMMARY_MOCK", "true")
+    monkeypatch.setenv("SUMMARY_MOCK_DELAY_MS", "0")
+    from services.summarizer import MockSummarizer
+    monkeypatch.setattr(MockSummarizer, "DELAY_MS", 0)
+
+    from services.summarizer import SubtitleExtractor
+    def fake_extract(self, url, language="zh"):
+        return {"has_subtitle": False, "language": "", "subtitle_type": "none",
+                "is_target_language": False, "fallback_mode": None,
+                "segments": [], "full_text": ""}
+    monkeypatch.setattr(SubtitleExtractor, "extract", fake_extract)
+
+    # Stub _get_video_info to return metadata
+    from services import summarizer as s_mod
+    monkeypatch.setattr(
+        s_mod, "_get_video_info",
+        lambda url: {"title": "测试视频标题", "duration": 600, "uploader": "测试频道"},
+    )
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        async with ac.stream(
+            "POST", "/api/summarize",
+            json={"url": "https://example.com/meta-only", "language": "zh"},
+        ) as r:
+            text = (await r.aread()).decode("utf-8")
+            events = _parse_sse(text)
+            event_names = [e[0] for e in events]
+            # Should fall through to the metadata-fallback path
+            assert "subtitle" in event_names
+            sub_data = json.loads(next(d for e, d in events if e == "subtitle"))
+            assert sub_data["fallback_mode"] == "metadata"
+            assert "chapters" in event_names  # mock body has chapters
+            chapters_data = json.loads(next(d for e, d in events if e == "chapters"))
+            # Fallback prompt produces empty chapters
+            assert chapters_data["chapters"] == []
+
+
+def test_fallback_prompt_contains_title():
+    from services.summarizer import _build_fallback_prompt
+    p = _build_fallback_prompt("My Talk", "YouTube", 1800, "zh")
+    assert "My Talk" in p
+    assert "YouTube" in p
+    assert "1800" in p
+    assert "30 分钟" in p
