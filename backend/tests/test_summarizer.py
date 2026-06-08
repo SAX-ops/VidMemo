@@ -465,10 +465,13 @@ def test_parse_chapter_json_no_json_block():
 
 
 def test_parse_chapter_json_invalid_returns_empty(caplog):
+    import logging
     body = "## 视频概述\n```json\n{this is not valid json}\n```\n"
-    md, chapters = parse_chapter_json(body)
+    with caplog.at_level(logging.WARNING):
+        md, chapters = parse_chapter_json(body)
     assert "## 视频概述" in md
     assert chapters == []
+    assert "parse_chapter_json" in caplog.text  # locks in the WARNING contract
 
 
 def test_parse_chapter_json_strips_preceding_markdown():

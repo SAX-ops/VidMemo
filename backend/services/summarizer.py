@@ -1,6 +1,7 @@
 """AI 视频总结模块：字幕提取 + LLM 总结 + Mock + 缓存。"""
 
 import json
+import logging
 import os
 import re
 import tempfile
@@ -8,6 +9,8 @@ from typing import Optional
 
 import httpx
 from yt_dlp import YoutubeDL
+
+logger = logging.getLogger(__name__)
 
 
 def _is_bilibili_url(url: str) -> bool:
@@ -450,11 +453,6 @@ def _build_fallback_prompt(title: str, platform: str, duration: int, language: s
         duration=duration or 0,
         duration_min=(duration or 0) // 60,
     )
-
-
-import logging
-
-logger = logging.getLogger(__name__)
 
 
 def parse_chapter_json(full_body: str) -> tuple[str, list[dict]]:
