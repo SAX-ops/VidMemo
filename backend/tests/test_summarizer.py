@@ -257,3 +257,70 @@ def test_build_summarizer_returns_real_with_api_key(monkeypatch):
     assert isinstance(s, VideoSummarizer)
 
 
+class FakeChunk:
+    def __init__(self, content):
+        self.choices = [type("Choice", (), {"delta": type("Delta", (), {"content": content})()})()]
+
+
+class FakeStreamingResponse:
+    def __init__(self, tokens):
+        self._tokens = tokens
+
+    def __iter__(self):
+        return iter([FakeChunk(t) for t in self._tokens])
+
+
+def test_summarize_stream_yields_all_tokens(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    monkeypatch.setenv("SUMMARY_MODEL", "fake-model")
+    monkeypatch.setenv("SUMMARY_TIMEOUT", "10")
+    monkeypatch.setenv("SUMMARY_MOCK", "false")
+
+    from services.summarizer import VideoSummarizer
+    s = VideoSummarizer()
+    s.client.chat.completions.create = lambda **kwargs: FakeStreamingResponse(["Hi", " there", "!"])
+
+    tokens = list(s.summarize_stream("subtitle text here", "zh"))
+    assert "".join(tokens) == "Hi there!"
+
+
+def test_summarize_stream_uses_standard_prompt_for_subtitles(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    monkeypatch.setenv("SUMMARY_TIMEOUT", "10")
+    monkeypatch.setenv("SUMMARY_MOCK", "false")
+
+    from services.summarizer import VideoSummarizer
+    s = VideoSummarizer()
+    captured = {}
+    def fake_create(**kwargs):
+        captured["model"] = kwargs.get("model")
+        captured["messages"] = kwargs.get("messages")
+        return FakeStreamingResponse(["x"])
+    s.client.chat.completions.create = fake_create
+
+    list(s.summarize_stream("字幕内容", "zh", has_subtitle=True))
+    prompt = captured["messages"][1]["content"]
+    assert "视频概述" in prompt
+    assert "章节时间戳" in prompt
+    assert "字幕内容" in prompt
+
+
+def test_summarize_stream_uses_fallback_prompt_without_subtitles(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    monkeypatch.setenv("SUMMARY_TIMEOUT", "10")
+    monkeypatch.setenv("SUMMARY_MOCK", "false")
+
+    from services.summarizer import VideoSummarizer
+    s = VideoSummarizer()
+    captured = {}
+    def fake_create(**kwargs):
+        captured["messages"] = kwargs.get("messages")
+        return FakeStreamingResponse(["x"])
+    s.client.chat.completions.create = fake_create
+
+    list(s.summarize_stream("video title here", "zh", has_subtitle=False, video_meta={"title": "X", "duration": 600}))
+    prompt = captured["messages"][1]["content"]
+    assert "没有可用的字幕" in prompt
+    assert "X" in prompt
+
+

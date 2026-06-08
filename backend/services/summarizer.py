@@ -277,6 +277,41 @@ class VideoSummarizer:
         self.model = os.getenv("SUMMARY_MODEL", "gpt-4o-mini")
         self.timeout = int(os.getenv("SUMMARY_TIMEOUT", "90"))
 
+    def summarize_stream(
+        self,
+        subtitle_text: str,
+        language: str = "zh",
+        has_subtitle: bool = True,
+        video_meta: Optional[dict] = None,
+    ):
+        """Stream summary tokens from the LLM."""
+        if has_subtitle:
+            prompt = _build_standard_prompt(subtitle_text, language, (video_meta or {}).get("duration", 0))
+        else:
+            meta = video_meta or {}
+            prompt = _build_fallback_prompt(
+                title=meta.get("title", ""),
+                platform=meta.get("platform", ""),
+                duration=meta.get("duration", 0),
+                language=language,
+            )
+        system = "你是一个专业的视频内容分析助手，擅长提取关键信息并生成结构化的总结。"
+        response = self.client.chat.completions.create(
+            model=self.model,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": prompt},
+            ],
+            stream=True,
+            temperature=0.7,
+            max_tokens=4096,
+            timeout=self.timeout,
+        )
+        for chunk in response:
+            delta = chunk.choices[0].delta
+            if delta.content:
+                yield delta.content
+
 
 class MockSummarizer:
     """Canned summary emitter for offline dev and tests."""
@@ -303,4 +338,102 @@ class MockSummarizer:
         {"time": 90, "title": "主题展开"},
         {"time": 300, "title": "总结回顾"},
     ]
+
+
+SUMMARY_PROMPT_STANDARD = """请对以下视频字幕内容进行深度总结分析，使用 {language} 输出。
+
+视频时长：{duration} 秒。
+
+## 输出结构
+
+### 1. 视频概述
+（用 2-3 句话概括视频的主题和核心内容）
+
+### 2. 内容大纲
+（按视频内容的逻辑顺序，列出主要章节/段落。
+ **章节数量请按视频时长动态调整**：
+  - 时长 < 600 秒（< 10 分钟）：2-4 个章节
+  - 时长 600-1800 秒（10-30 分钟）：4-6 个章节
+  - 时长 1800-3600 秒（30-60 分钟）：6-8 个章节
+  - 时长 > 3600 秒（> 60 分钟）：8-12 个章节
+ 每个章节用一个 `### ` 三级标题，标题文字简洁（≤ 20 字）。
+ **不要在标题里嵌入时间戳**——时间戳放到最后的 JSON 块里。）
+
+### 3. 核心知识要点
+（提取视频中最重要的知识点、观点或结论，用编号列表形式。最多 8 条。）
+
+### 4. 总结
+（用 1-2 句话给出整体评价或一句话总结）
+
+### 5. 章节时间戳（必须输出，结构化 JSON）
+**在所有 markdown 之后，另起一行输出一个 JSON 代码块**，格式严格如下：
+
+```json
+{{"chapters": [{{"time": 83, "title": "GPT 的核心机制"}}, {{"time": 347, "title": "实际应用案例"}}]}}
+```
+
+要求：
+- `time` 是整数秒（不是字符串，**不要加引号**）
+- 章节顺序按视频中出现的先后顺序
+- 章节数量与上面"内容大纲"的章节数量**完全一致**
+- 标题文字必须与"内容大纲"中对应章节**完全一致**
+- JSON 必须能被 `json.loads` 解析（双引号、无尾逗号、无注释）
+
+---
+视频字幕内容：
+{subtitle}
+"""
+
+
+SUMMARY_PROMPT_FALLBACK = """请基于以下视频的元数据生成一个**简短的**总结（不超过 200 字），使用 {language} 输出。
+
+⚠️ 该视频没有可用的字幕，以下总结**仅基于标题和元数据推测**，精度有限。建议用户观看原视频获取准确信息。
+
+视频标题：{title}
+视频平台：{platform}
+视频时长：{duration} 秒（{duration_min} 分钟）
+
+## 输出结构
+
+### 1. 视频概述
+（基于标题推测视频主题，1-2 句话，**显式声明这是基于标题的猜测**）
+
+### 2. 内容大纲
+（**直接说明无法获取字幕内容，请用户观看视频**）
+
+### 3. 核心知识要点
+（基于标题推测可能的要点，最多 3 条；不要编造具体细节）
+
+### 4. 总结
+（提醒用户此总结基于元数据，强烈建议观看原视频）
+
+### 5. 章节时间戳
+输出一个**空数组**：
+```json
+{{"chapters": []}}
+```
+"""
+
+
+def _lang_hint(language: str) -> str:
+    return "中文" if language.startswith("zh") else "与原文相同的语言"
+
+
+def _build_standard_prompt(subtitle_text: str, language: str, duration: int) -> str:
+    truncated = subtitle_text[:15000]
+    return SUMMARY_PROMPT_STANDARD.format(
+        language=_lang_hint(language),
+        duration=duration or 0,
+        subtitle=truncated,
+    )
+
+
+def _build_fallback_prompt(title: str, platform: str, duration: int, language: str) -> str:
+    return SUMMARY_PROMPT_FALLBACK.format(
+        language=_lang_hint(language),
+        title=title or "（未知）",
+        platform=platform or "（未知）",
+        duration=duration or 0,
+        duration_min=(duration or 0) // 60,
+    )
 
