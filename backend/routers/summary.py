@@ -1,10 +1,7 @@
 """AI 视频总结路由 — SSE 流式端点。"""
 
-import asyncio
 import json
 import os
-from collections.abc import AsyncIterable
-from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
