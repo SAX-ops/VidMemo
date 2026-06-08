@@ -99,6 +99,8 @@ async def test_full_flow_with_subtitles_emits_all_events(tmp_path, monkeypatch):
     monkeypatch.setenv("SUMMARY_CACHE_PATH", str(tmp_path / "cache.json"))
     monkeypatch.setenv("SUMMARY_MOCK", "true")
     monkeypatch.setenv("SUMMARY_MOCK_DELAY_MS", "0")
+    from services.summarizer import MockSummarizer
+    monkeypatch.setattr(MockSummarizer, "DELAY_MS", 0)
 
     from services.summarizer import SubtitleExtractor
     def fake_extract(self, url, language="zh"):
@@ -126,3 +128,5 @@ async def test_full_flow_with_subtitles_emits_all_events(tmp_path, monkeypatch):
             chapters_data = json.loads(next(d for e, d in events if e == "chapters"))
             assert "chapters" in chapters_data
             assert isinstance(chapters_data["chapters"], list)
+            from services.summarizer import MockSummarizer
+            assert chapters_data["chapters"] == MockSummarizer.CHAPTERS
