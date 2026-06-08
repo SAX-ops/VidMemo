@@ -184,6 +184,42 @@ def test_fallback_prompt_contains_title():
 
 
 @pytest.mark.asyncio
+async def test_cache_hit_includes_full_subtitle_data(tmp_path, monkeypatch):
+    """Two-step: first call writes the cache (write path under test), second
+    call reads it (cache_hit). The cached subtitle_meta must include segments
+    + full_text, otherwise the frontend's 字幕文本 tab shows 'no subtitles'
+    on the second open.
+    """
+    cache_path = tmp_path / "cache.json"
+    monkeypatch.setenv("SUMMARY_CACHE_PATH", str(cache_path))
+    monkeypatch.setenv("SUMMARY_MOCK", "true")
+    monkeypatch.setattr("services.summarizer.MockSummarizer.DELAY_MS", 0)
+
+    from services.summarizer import SubtitleExtractor
+    segments = [{"start": 0, "end": 1, "text": "你好"}, {"start": 1, "end": 2, "text": "世界"}]
+    def fake_extract(self, url, language="zh"):
+        return {"has_subtitle": True, "language": "zh", "subtitle_type": "manual",
+                "is_target_language": True, "fallback_mode": None,
+                "segments": segments, "full_text": "你好世界"}
+    monkeypatch.setattr(SubtitleExtractor, "extract", fake_extract)
+
+    transport = ASGITransport(app=app)
+    url = "https://example.com/write-then-read"
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        # First call: writes cache via _stream_summary Step 5
+        async with ac.stream("POST", "/api/summarize", json={"url": url, "language": "zh"}) as r:
+            await r.aread()
+        # Second call: reads cache
+        async with ac.stream("POST", "/api/summarize", json={"url": url, "language": "zh"}) as r:
+            text = (await r.aread()).decode("utf-8")
+            events = _parse_sse(text)
+            assert events[0][0] == "cache_hit"
+            cache_data = json.loads(events[0][1])
+            assert cache_data["subtitle_meta"]["segments"] == segments
+            assert cache_data["subtitle_meta"]["full_text"] == "你好世界"
+
+
+@pytest.mark.asyncio
 async def test_missing_api_key_emits_error(tmp_path, monkeypatch):
     monkeypatch.setenv("SUMMARY_CACHE_PATH", str(tmp_path / "cache.json"))
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)

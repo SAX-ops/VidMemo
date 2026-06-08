@@ -199,10 +199,18 @@ async def _stream_summary(req: SummarizeRequest, cache: SummaryCache) -> AsyncIt
     yield _sse("chapters", {"chapters": chapters})
 
     # Step 5: write to cache
+    # Store the full subtitle payload (segments + full_text + fallback_mode)
+    # so the frontend's 字幕文本 tab can rehydrate from cache_hit, not just
+    # the metadata.
     cache.set(req.url, req.language, {
         "summary_md": md,
         "chapters": chapters,
-        "subtitle_meta": {k: subtitle[k] for k in ("has_subtitle", "language", "subtitle_type", "is_target_language")},
+        "subtitle_meta": {
+            k: subtitle[k] for k in (
+                "has_subtitle", "language", "subtitle_type", "is_target_language",
+                "fallback_mode", "segments", "full_text",
+            )
+        },
         "cached_at": datetime.now(timezone.utc).isoformat(),
     })
 
