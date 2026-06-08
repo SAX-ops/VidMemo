@@ -11,6 +11,7 @@ dependencies = [
     "gmssl>=3.2.2",
     "httpx>=0.28.1",
     "openai>=2.41.0",
+    "python-dotenv>=1.2.2",
     "python-multipart>=0.0.27",
     "uvicorn>=0.46.0",
     "websockets>=16.0",

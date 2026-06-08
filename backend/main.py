@@ -1,4 +1,7 @@
 # backend/main.py
+from dotenv import load_dotenv
+load_dotenv()  # picks up backend/.env (gitignored) for OPENAI_API_KEY etc.
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from routers import download, summary
