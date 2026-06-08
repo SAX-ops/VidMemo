@@ -1,7 +1,7 @@
 # backend/main.py
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from routers import download
+from routers import download, summary
 
 app = FastAPI(title="VidSumAI API", version="0.1.0")
 
@@ -14,6 +14,7 @@ app.add_middleware(
 )
 
 app.include_router(download.router, prefix="/api")
+app.include_router(summary.router, prefix="/api")
 
 
 @app.get("/health")
