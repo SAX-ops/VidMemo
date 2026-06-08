@@ -428,3 +428,14 @@ def test_summarize_stream_filters_none_and_empty_chunk_content(monkeypatch):
     assert "None" not in "".join(tokens)
 
 
+def test_mock_summarizer_streams_body_and_includes_json():
+    from services.summarizer import MockSummarizer
+    s = MockSummarizer()
+    s.DELAY_MS = 0  # instant for test
+    tokens = list(s.summarize_stream("ignored", "zh"))
+    body = "".join(tokens)
+    assert "## 视频概述" in body
+    assert '"chapters"' in body
+    assert body.endswith("```\n")
+
+

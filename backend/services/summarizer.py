@@ -339,6 +339,19 @@ class MockSummarizer:
         {"time": 300, "title": "总结回顾"},
     ]
 
+    def summarize_stream(self, subtitle_text: str, language: str = "zh", **kwargs):
+        """Yield the canned body character by character with a small inter-token delay."""
+        import time
+        body = self.BODY
+        i = 0
+        while i < len(body):
+            # Yield 1-3 chars at a time to simulate tokenization
+            chunk = body[i:i+2]
+            yield chunk
+            i += 2
+            if self.DELAY_MS > 0:
+                time.sleep(self.DELAY_MS / 1000.0)
+
 
 SUMMARY_PROMPT_STANDARD = """请对以下视频字幕内容进行深度总结分析，使用 {language} 输出。
 
