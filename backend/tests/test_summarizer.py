@@ -1,3 +1,4 @@
+import json
 import os
 from unittest.mock import MagicMock
 
@@ -437,5 +438,43 @@ def test_mock_summarizer_streams_body_and_includes_json():
     assert "## 视频概述" in body
     assert '"chapters"' in body
     assert body.endswith("```\n")
+
+
+from services.summarizer import parse_chapter_json
+
+
+def test_parse_chapter_json_valid():
+    body = (
+        "## 视频概述\nhi\n"
+        "## 内容大纲\nblah\n"
+        "```json\n"
+        '{"chapters": [{"time": 0, "title": "开场"}, {"time": 90, "title": "中段"}]}\n'
+        "```\n"
+    )
+    md, chapters = parse_chapter_json(body)
+    assert "## 视频概述" in md
+    assert "```json" not in md
+    assert chapters == [{"time": 0, "title": "开场"}, {"time": 90, "title": "中段"}]
+
+
+def test_parse_chapter_json_no_json_block():
+    body = "## 视频概述\nno chapters here"
+    md, chapters = parse_chapter_json(body)
+    assert md == body
+    assert chapters == []
+
+
+def test_parse_chapter_json_invalid_returns_empty(caplog):
+    body = "## 视频概述\n```json\n{this is not valid json}\n```\n"
+    md, chapters = parse_chapter_json(body)
+    assert "## 视频概述" in md
+    assert chapters == []
+
+
+def test_parse_chapter_json_strips_preceding_markdown():
+    body = "Some intro\n```json\n" + json.dumps({"chapters": [{"time": 5, "title": "x"}]}) + "\n```"
+    md, chapters = parse_chapter_json(body)
+    assert "Some intro" in md
+    assert chapters == [{"time": 5, "title": "x"}]
 
 

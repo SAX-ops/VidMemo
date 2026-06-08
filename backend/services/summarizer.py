@@ -1,5 +1,6 @@
 """AI 视频总结模块：字幕提取 + LLM 总结 + Mock + 缓存。"""
 
+import json
 import os
 import re
 import tempfile
@@ -449,4 +450,39 @@ def _build_fallback_prompt(title: str, platform: str, duration: int, language: s
         duration=duration or 0,
         duration_min=(duration or 0) // 60,
     )
+
+
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+def parse_chapter_json(full_body: str) -> tuple[str, list[dict]]:
+    """Split an LLM response into (markdown_body, chapters).
+
+    The chapters are extracted from the first ```json ... ``` block in the body.
+    On parse failure, the markdown body is preserved and chapters is empty (logged WARNING).
+    Never raises — a 90-second LLM call should not be wasted because of a trailing comma.
+    """
+    pattern = re.compile(r"```json\s*\n(.*?)\n```", re.DOTALL)
+    match = pattern.search(full_body)
+    if not match:
+        return full_body, []
+
+    md = (full_body[:match.start()] + full_body[match.end():]).strip()
+    raw = match.group(1).strip()
+    try:
+        parsed = json.loads(raw)
+        chapters = parsed.get("chapters", [])
+        if not isinstance(chapters, list):
+            raise ValueError("chapters is not a list")
+        clean = []
+        for c in chapters:
+            if not isinstance(c, dict) or "time" not in c or "title" not in c:
+                raise ValueError(f"malformed chapter entry: {c}")
+            clean.append({"time": int(c["time"]), "title": str(c["title"])})
+        return md, clean
+    except (json.JSONDecodeError, ValueError, TypeError) as e:
+        logger.warning("parse_chapter_json: invalid JSON in LLM response, returning empty chapters: %s", e)
+        return full_body, []
 
