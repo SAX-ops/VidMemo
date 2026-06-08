@@ -181,3 +181,138 @@ def test_fallback_prompt_contains_title():
     assert "YouTube" in p
     assert "1800" in p
     assert "30 分钟" in p
+
+
+@pytest.mark.asyncio
+async def test_missing_api_key_emits_error(tmp_path, monkeypatch):
+    monkeypatch.setenv("SUMMARY_CACHE_PATH", str(tmp_path / "cache.json"))
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setenv("SUMMARY_MOCK", "false")
+
+    from services.summarizer import SubtitleExtractor
+    def fake_extract(self, url, language="zh"):
+        return {"has_subtitle": True, "language": "zh", "subtitle_type": "manual",
+                "is_target_language": True, "fallback_mode": None,
+                "segments": [{"start": 0, "end": 1, "text": "x"}],
+                "full_text": "x"}
+    monkeypatch.setattr(SubtitleExtractor, "extract", fake_extract)
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        async with ac.stream(
+            "POST", "/api/summarize",
+            json={"url": "https://example.com/x", "language": "zh"},
+        ) as r:
+            text = (await r.aread()).decode("utf-8")
+            events = _parse_sse(text)
+            err = next((d for e, d in events if e == "error"), None)
+            assert err is not None
+            err_data = json.loads(err)
+            assert "OPENAI_API_KEY" in err_data["message"]
+            assert err_data.get("code") == "config_error"
+
+
+@pytest.mark.asyncio
+async def test_timeout_emits_error(tmp_path, monkeypatch):
+    """When the LLM hangs, the SSE stream emits a timeout error after SUMMARY_TIMEOUT seconds."""
+    monkeypatch.setenv("SUMMARY_CACHE_PATH", str(tmp_path / "cache.json"))
+    monkeypatch.setenv("SUMMARY_MOCK", "true")
+    monkeypatch.setattr("services.summarizer.MockSummarizer.DELAY_MS", 0)
+    monkeypatch.setenv("SUMMARY_TIMEOUT", "1")  # 1 second
+
+    from services.summarizer import SubtitleExtractor
+    def fake_extract(self, url, language="zh"):
+        return {"has_subtitle": True, "language": "zh", "subtitle_type": "manual",
+                "is_target_language": True, "fallback_mode": None,
+                "segments": [{"start": 0, "end": 1, "text": "x"}],
+                "full_text": "x"}
+    monkeypatch.setattr(SubtitleExtractor, "extract", fake_extract)
+
+    # Replace mock summarizer with a hanging one
+    import time
+    from services.summarizer import MockSummarizer
+    def hang(self, subtitle_text, language="zh", **kwargs):
+        time.sleep(5)  # way past the 1s timeout
+        yield "x"
+    monkeypatch.setattr(MockSummarizer, "summarize_stream", hang)
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        async with ac.stream(
+            "POST", "/api/summarize",
+            json={"url": "https://example.com/timeout", "language": "zh"},
+        ) as r:
+            text = (await r.aread()).decode("utf-8")
+            events = _parse_sse(text)
+            err = next((d for e, d in events if e == "error"), None)
+            assert err is not None
+            err_data = json.loads(err)
+            assert "超时" in err_data["message"]
+
+
+@pytest.mark.asyncio
+async def test_missing_api_key_emits_error(tmp_path, monkeypatch):
+    """When OPENAI_API_KEY is unset and SUMMARY_MOCK=false, the SSE stream emits a config_error event."""
+    monkeypatch.setenv("SUMMARY_CACHE_PATH", str(tmp_path / "cache.json"))
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setenv("SUMMARY_MOCK", "false")
+
+    from services.summarizer import SubtitleExtractor
+    def fake_extract(self, url, language="zh"):
+        return {"has_subtitle": True, "language": "zh", "subtitle_type": "manual",
+                "is_target_language": True, "fallback_mode": None,
+                "segments": [{"start": 0, "end": 1, "text": "x"}],
+                "full_text": "x"}
+    monkeypatch.setattr(SubtitleExtractor, "extract", fake_extract)
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        async with ac.stream(
+            "POST", "/api/summarize",
+            json={"url": "https://example.com/x", "language": "zh"},
+        ) as r:
+            text = (await r.aread()).decode("utf-8")
+            events = _parse_sse(text)
+            err = next((d for e, d in events if e == "error"), None)
+            assert err is not None
+            err_data = json.loads(err)
+            assert "OPENAI_API_KEY" in err_data["message"]
+
+
+@pytest.mark.asyncio
+async def test_timeout_emits_error(tmp_path, monkeypatch):
+    """When the LLM hangs, the SSE stream emits a timeout error after SUMMARY_TIMEOUT seconds."""
+    monkeypatch.setenv("SUMMARY_CACHE_PATH", str(tmp_path / "cache.json"))
+    monkeypatch.setenv("SUMMARY_MOCK", "true")
+    monkeypatch.setenv("SUMMARY_MOCK_DELAY_MS", "0")
+    monkeypatch.setenv("SUMMARY_TIMEOUT", "1")  # 1 second
+
+    from services.summarizer import SubtitleExtractor
+    def fake_extract(self, url, language="zh"):
+        return {"has_subtitle": True, "language": "zh", "subtitle_type": "manual",
+                "is_target_language": True, "fallback_mode": None,
+                "segments": [{"start": 0, "end": 1, "text": "x"}],
+                "full_text": "x"}
+    monkeypatch.setattr(SubtitleExtractor, "extract", fake_extract)
+
+    # Replace mock summarizer with a hanging one
+    import time
+    from services.summarizer import MockSummarizer
+    def hang(self, subtitle_text, language="zh", **kwargs):
+        time.sleep(5)  # way past the 1s timeout
+        yield "x"
+    monkeypatch.setattr(MockSummarizer, "summarize_stream", hang)
+    monkeypatch.setattr(MockSummarizer, "DELAY_MS", 0)
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        async with ac.stream(
+            "POST", "/api/summarize",
+            json={"url": "https://example.com/timeout", "language": "zh"},
+        ) as r:
+            text = (await r.aread()).decode("utf-8")
+            events = _parse_sse(text)
+            err = next((d for e, d in events if e == "error"), None)
+            assert err is not None
+            err_data = json.loads(err)
+            assert "超时" in err_data["message"]

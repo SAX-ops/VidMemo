@@ -126,7 +126,11 @@ async def _stream_summary(req: SummarizeRequest, cache: SummaryCache) -> AsyncIt
         yield _sse("subtitle", subtitle)
 
         # Continue with fallback prompt (chapters always empty for fallback)
-        summarizer = build_summarizer()
+        try:
+            summarizer = build_summarizer()
+        except ValueError as e:
+            yield _sse("error", {"message": str(e), "code": "config_error"})
+            return
         timeout = int(os.getenv("SUMMARY_TIMEOUT", "90"))
         try:
             gen = _stream_fallback(summarizer, video_meta, req.language)
@@ -151,30 +155,37 @@ async def _stream_summary(req: SummarizeRequest, cache: SummaryCache) -> AsyncIt
     yield _sse("subtitle", subtitle)
 
     # Step 3: stream summary tokens + collect
-    summarizer = build_summarizer()
+    try:
+        summarizer = build_summarizer()
+    except ValueError as e:
+        yield _sse("error", {"message": str(e), "code": "config_error"})
+        return
     accumulated: list[str] = []
     timeout = int(os.getenv("SUMMARY_TIMEOUT", "90"))
     full_text_len = len(subtitle.get("full_text") or "")
     effective_timeout = max(timeout, full_text_len // 200)
 
     try:
-        async def run_summarize():
-            for tok in summarizer.summarize_stream(
-                subtitle.get("full_text", ""),
-                req.language,
-                has_subtitle=True,
-            ):
-                accumulated.append(tok)
-                yield _sse("summary", tok)
-
-        # Run the stream in a thread, forward tokens, enforce timeout
-        gen = run_summarize()
+        # Each next() runs in a worker thread so a hung LLM doesn't block the
+        # event loop — this is what lets asyncio.wait_for actually fire on a
+        # timeout (sync iteration inside an async coroutine would block).
+        # Use a sentinel return so StopIteration isn't raised into a Future
+        # (PEP 479: StopIteration in a coroutine is a RuntimeError).
+        _DONE = object()
+        gen = summarizer.summarize_stream(
+            subtitle.get("full_text", ""),
+            req.language,
+            has_subtitle=True,
+        )
         while True:
-            try:
-                chunk = await asyncio.wait_for(gen.__anext__(), timeout=effective_timeout)
-                yield chunk
-            except StopAsyncIteration:
+            tok = await asyncio.wait_for(
+                loop.run_in_executor(None, next, gen, _DONE),
+                timeout=effective_timeout,
+            )
+            if tok is _DONE:
                 break
+            accumulated.append(tok)
+            yield _sse("summary", tok)
     except asyncio.TimeoutError:
         yield _sse("error", {"message": f"AI 总结超时（{effective_timeout}s），请重试或换一个较短的字幕", "code": "timeout"})
         return
