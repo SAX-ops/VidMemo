@@ -50,11 +50,17 @@ export interface SubtitleData {
   full_text: string
 }
 
-export interface Chapter {
-  time: number
-  title: string
+export interface OutlinePart {
+  timestamp: number
+  content: string
 }
 
-export interface ChapterList {
-  chapters: Chapter[]
+export interface OutlineSection {
+  title: string
+  timestamp: number
+  part_outline: OutlinePart[]
+}
+
+export interface OutlineData {
+  outline: OutlineSection[]
 }

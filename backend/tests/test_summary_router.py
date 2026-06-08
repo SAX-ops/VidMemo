@@ -39,7 +39,7 @@ async def test_cache_hit_short_circuits_to_done(tmp_path, monkeypatch):
         "zh",
         {
             "summary_md": "## cached summary",
-            "chapters": [{"time": 0, "title": "x"}],
+            "outline": [{"title": "x", "timestamp": 0, "part_outline": [{"timestamp": 0, "content": "c"}]}],
             "subtitle_meta": {"has_subtitle": True, "language": "zh", "subtitle_type": "manual"},
             "cached_at": datetime.now(timezone.utc).isoformat(),
         },
@@ -63,7 +63,7 @@ async def test_cache_hit_short_circuits_to_done(tmp_path, monkeypatch):
             # No subtitle/summary/chapters events on cache hit
             assert "subtitle" not in event_names
             assert "summary" not in event_names
-            assert "chapters" not in event_names
+            assert "outline" not in event_names
 
 
 @pytest.mark.asyncio
@@ -95,7 +95,7 @@ async def test_no_subtitle_and_no_metadata_emits_error(tmp_path, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_full_flow_with_subtitles_emits_all_events(tmp_path, monkeypatch):
-    """Subtitles found → subtitle → summary (tokens) → chapters → done."""
+    """Subtitles found → subtitle → summary (tokens) → outline → done."""
     monkeypatch.setenv("SUMMARY_CACHE_PATH", str(tmp_path / "cache.json"))
     monkeypatch.setenv("SUMMARY_MOCK", "true")
     monkeypatch.setenv("SUMMARY_MOCK_DELAY_MS", "0")
@@ -121,15 +121,15 @@ async def test_full_flow_with_subtitles_emits_all_events(tmp_path, monkeypatch):
             event_names = [e[0] for e in events]
             assert event_names[0] == "subtitle"
             assert "summary" in event_names
-            assert "chapters" in event_names
+            assert "outline" in event_names
             assert event_names[-1] == "done"
 
-            # Verify chapters are valid JSON with the expected shape
-            chapters_data = json.loads(next(d for e, d in events if e == "chapters"))
-            assert "chapters" in chapters_data
-            assert isinstance(chapters_data["chapters"], list)
+            # Verify outline is valid JSON with the expected shape
+            outline_data = json.loads(next(d for e, d in events if e == "outline"))
+            assert "outline" in outline_data
+            assert isinstance(outline_data["outline"], list)
             from services.summarizer import MockSummarizer
-            assert chapters_data["chapters"] == MockSummarizer.CHAPTERS
+            assert outline_data["outline"] == MockSummarizer.OUTLINE
 
 
 @pytest.mark.asyncio
@@ -168,10 +168,10 @@ async def test_no_subtitle_falls_back_to_metadata_prompt(tmp_path, monkeypatch):
             assert "subtitle" in event_names
             sub_data = json.loads(next(d for e, d in events if e == "subtitle"))
             assert sub_data["fallback_mode"] == "metadata"
-            assert "chapters" in event_names  # mock body has chapters
-            chapters_data = json.loads(next(d for e, d in events if e == "chapters"))
-            # Fallback prompt produces empty chapters
-            assert chapters_data["chapters"] == []
+            assert "outline" in event_names  # mock body has outline
+            outline_data = json.loads(next(d for e, d in events if e == "outline"))
+            # Fallback prompt produces empty outline
+            assert outline_data["outline"] == []
 
 
 def test_fallback_prompt_contains_title():

@@ -58,11 +58,6 @@ class SubtitleData(BaseModel):
     full_text: str = ""
 
 
-class Chapter(BaseModel):
-    time: int   # seconds
-    title: str
-
-
 class SummarizeRequest(BaseModel):
     url: str
     language: str = "zh"

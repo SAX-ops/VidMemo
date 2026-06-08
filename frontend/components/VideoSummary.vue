@@ -31,20 +31,31 @@
           ✓ 来自缓存 ({{ cacheBadge }})
         </div>
 
-        <!-- Chapter list (from JSON event) -->
-        <div v-if="chapters.length > 0" class="mb-4">
-          <h3 class="text-sm font-semibold text-text-secondary mb-2">章节</h3>
-          <ol class="space-y-1">
-            <li
-              v-for="(ch, idx) in chapters"
-              :key="idx"
-              class="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-dark-bg/50 cursor-pointer transition-colors"
-              @click="onChapterClick(ch.time)"
-            >
-              <span class="text-primary-from font-mono text-xs min-w-[50px]">{{ formatTime(ch.time) }}</span>
-              <span class="text-white text-sm">{{ ch.title }}</span>
-            </li>
-          </ol>
+        <!-- Outline tree (from JSON event) -->
+        <div v-if="outline.length > 0" class="mb-4">
+          <h3 class="text-sm font-semibold text-text-secondary mb-2">视频大纲</h3>
+          <div class="space-y-3">
+            <div v-for="(sec, idx) in outline" :key="idx">
+              <button
+                @click="onOutlineClick(sec.timestamp)"
+                class="flex items-center gap-3 px-3 py-2 rounded-lg bg-dark-bg/30 hover:bg-dark-bg/60 w-full text-left transition-colors"
+              >
+                <span class="text-primary-from font-mono text-xs min-w-[50px]">{{ formatTime(sec.timestamp) }}</span>
+                <span class="text-white text-sm font-medium">{{ sec.title }}</span>
+              </button>
+              <ul v-if="sec.part_outline?.length" class="mt-1 ml-12 space-y-0.5">
+                <li
+                  v-for="(part, pidx) in sec.part_outline"
+                  :key="pidx"
+                  @click="onOutlineClick(part.timestamp)"
+                  class="flex items-start gap-3 px-3 py-1.5 rounded hover:bg-dark-bg/30 cursor-pointer transition-colors"
+                >
+                  <span class="text-text-secondary font-mono text-xs min-w-[50px] pt-0.5">{{ formatTime(part.timestamp) }}</span>
+                  <span class="text-text-secondary text-sm">{{ part.content }}</span>
+                </li>
+              </ul>
+            </div>
+          </div>
         </div>
 
         <!-- Summary markdown (rendered) -->
@@ -89,7 +100,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { marked } from 'marked'
-import type { SubtitleData, Chapter as ChapterT } from '~/types'
+import type { SubtitleData, OutlineSection as OutlineSectionT } from '~/types'
 import { useSSE } from '~/composables/useSSE'
 
 const props = defineProps<{
@@ -99,7 +110,7 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  'chapter-click': [timeSec: number]
+  'outline-click': [timeSec: number]
   'loading-change': [loading: boolean]
 }>()
 
@@ -113,7 +124,7 @@ const tabs = [
 const activeTab = ref<typeof tabs[number]['key']>('summary')
 
 const summaryText = ref('')
-const chapters = ref<ChapterT[]>([])
+const outline = ref<OutlineSectionT[]>([])
 const subtitleData = ref<SubtitleData>({
   has_subtitle: false,
   language: '',
@@ -150,8 +161,8 @@ function formatTime(seconds: number): string {
   return `${m}:${String(s).padStart(2, '0')}`
 }
 
-function onChapterClick(t: number) {
-  emit('chapter-click', t)
+function onOutlineClick(t: number) {
+  emit('outline-click', t)
 }
 
 function startStream() {
@@ -162,7 +173,7 @@ function startStream() {
   }
   // Reset state
   summaryText.value = ''
-  chapters.value = []
+  outline.value = []
   errorMessage.value = ''
   cacheBadge.value = ''
   subtitleData.value = {
@@ -182,7 +193,7 @@ function startStream() {
       cache_hit: (data: any) => {
         cacheBadge.value = data.cached_at
         summaryText.value = data.summary
-        chapters.value = data.chapters || []
+        outline.value = data.outline || []
         subtitleData.value = { ...subtitleData.value, ...(data.subtitle_meta || {}) }
         loading.value = false
         loadingMessage.value = '已从缓存加载'
@@ -198,8 +209,8 @@ function startStream() {
       summary: (data: any) => {
         summaryText.value += typeof data === 'string' ? data : JSON.stringify(data)
       },
-      chapters: (data: any) => {
-        chapters.value = data.chapters || []
+      outline: (data: any) => {
+        outline.value = data.outline || []
       },
       done: () => {
         loading.value = false

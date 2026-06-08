@@ -83,7 +83,7 @@
         :visible="showSummary"
         :video-url="videoInfo.url"
         :video-title="videoInfo.title"
-        @chapter-click="onChapterClick"
+        @outline-click="onOutlineClick"
       />
 
       <!-- Progress Tracker -->
@@ -128,7 +128,7 @@ const displayProgress = ref(0)
 const showSummary = ref(false)
 const videoPreviewRef = ref<InstanceType<typeof import('~/components/VideoPreview.vue').default> | null>(null)
 
-function onChapterClick(t: number) {
+function onOutlineClick(t: number) {
   videoPreviewRef.value?.setCurrentTime(t)
   // play() returns a Promise; browsers reject with NotAllowedError when
   // autoplay is blocked. We deliberately swallow that error so a chapter

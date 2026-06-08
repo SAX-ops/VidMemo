@@ -302,7 +302,7 @@ def test_summarize_stream_uses_standard_prompt_for_subtitles(monkeypatch):
     list(s.summarize_stream("字幕内容", "zh", has_subtitle=True))
     prompt = captured["messages"][1]["content"]
     assert "视频概述" in prompt
-    assert "章节时间戳" in prompt
+    assert "视频大纲" in prompt
     assert "字幕内容" in prompt
 
 
@@ -421,16 +421,12 @@ def test_standard_prompt_enforces_markdown_h2_headers():
     p = SUMMARY_PROMPT_STANDARD
     # Use `## ` (markdown H2) as the canonical main-section marker
     assert "## 视频概述" in p
-    assert "## 内容大纲" in p
-    assert "## 核心知识要点" in p
+    assert "## 视频大纲" in p
     assert "## 总结" in p
-    # Must contain a full JSON example with the correct outer braces (the bug
-    # was `chapters": [...]` missing the opening `{"`)
-    assert '{{"chapters": [' in p
+    # Must contain a full JSON example with the correct outer braces
+    assert '{{"outline":' in p
     # Must explicitly forbid the wrong style so the LLM sees a DO/DON'T
     assert "不要" in p  # "do not write 1. 视频概述"
-    # Content outline must use `### ` (H3) for sub-chapters
-    assert "### " in p
 
 
 def test_standard_prompt_has_full_output_example():
@@ -441,21 +437,14 @@ def test_standard_prompt_has_full_output_example():
     p = SUMMARY_PROMPT_STANDARD
     # The example block should show the exact "## 视频概述\n(...)" pattern
     assert "## 视频概述" in p
-    assert "## 内容大纲" in p
-    assert "## 核心知识要点" in p
     assert "## 总结" in p
-    assert "## 章节时间戳" in p
-    # The example should show sub-chapters (### xxx) and a JSON code fence
-    assert "### " in p
+    assert "## 视频大纲" in p
+    # The example should show a JSON code fence with the 2-level outline shape
     assert "```json" in p
-    # And the JSON example must include a complete {"chapters": [...]} with
-    # at least one entry so the LLM sees the exact shape. `{{"time":` appears
-    # in the template; the `title` key sits in the same dict as `time`, so
-    # check the bare `"title":` (post-format form is also valid in the
-    # template since the value is just text).
-    assert "{{\"chapters\":" in p
-    assert "{{\"time\":" in p
-    assert "\"title\":" in p
+    assert "{{\"outline\":" in p
+    assert "{{\"timestamp\":" in p
+    assert "\"part_outline\":" in p
+    assert "\"content\":" in p
 
 
 def test_summarize_stream_filters_none_and_empty_chunk_content(monkeypatch):
@@ -481,48 +470,107 @@ def test_mock_summarizer_streams_body_and_includes_json():
     tokens = list(s.summarize_stream("ignored", "zh"))
     body = "".join(tokens)
     assert "## 视频概述" in body
-    assert '"chapters"' in body
+    assert '"outline"' in body
+    assert '"part_outline"' in body
     assert body.endswith("```\n")
 
 
-from services.summarizer import parse_chapter_json
+from services.summarizer import parse_outline_json
 
 
-def test_parse_chapter_json_valid():
+def test_parse_outline_json_valid():
     body = (
         "## 视频概述\nhi\n"
-        "## 内容大纲\nblah\n"
         "```json\n"
-        '{"chapters": [{"time": 0, "title": "开场"}, {"time": 90, "title": "中段"}]}\n'
+        '{"outline": [{"title": "开场", "timestamp": 0, "part_outline": [{"timestamp": 5, "content": "要点1"}]}, '
+        '{"title": "中段", "timestamp": 90, "part_outline": [{"timestamp": 95, "content": "要点2"}]}]}\n'
         "```\n"
     )
-    md, chapters = parse_chapter_json(body)
+    md, outline = parse_outline_json(body)
     assert "## 视频概述" in md
     assert "```json" not in md
-    assert chapters == [{"time": 0, "title": "开场"}, {"time": 90, "title": "中段"}]
+    assert len(outline) == 2
+    assert outline[0]["title"] == "开场"
+    assert outline[0]["timestamp"] == 0
+    assert outline[0]["part_outline"] == [{"timestamp": 5, "content": "要点1"}]
+    assert outline[1]["title"] == "中段"
+    assert outline[1]["timestamp"] == 90
 
 
-def test_parse_chapter_json_no_json_block():
-    body = "## 视频概述\nno chapters here"
-    md, chapters = parse_chapter_json(body)
+def test_parse_outline_json_no_json_block():
+    body = "## 视频概述\nno outline here"
+    md, outline = parse_outline_json(body)
     assert md == body
-    assert chapters == []
+    assert outline == []
 
 
-def test_parse_chapter_json_invalid_returns_empty(caplog):
+def test_parse_outline_json_invalid_returns_empty(caplog):
     import logging
     body = "## 视频概述\n```json\n{this is not valid json}\n```\n"
     with caplog.at_level(logging.WARNING):
-        md, chapters = parse_chapter_json(body)
+        md, outline = parse_outline_json(body)
     assert "## 视频概述" in md
-    assert chapters == []
-    assert "parse_chapter_json" in caplog.text  # locks in the WARNING contract
+    assert outline == []
+    assert "parse_outline_json" in caplog.text  # locks in the WARNING contract
 
 
-def test_parse_chapter_json_strips_preceding_markdown():
-    body = "Some intro\n```json\n" + json.dumps({"chapters": [{"time": 5, "title": "x"}]}) + "\n```"
-    md, chapters = parse_chapter_json(body)
+def test_parse_outline_json_strips_preceding_markdown():
+    body = (
+        "Some intro\n```json\n"
+        + json.dumps({"outline": [{"title": "x", "timestamp": 5, "part_outline": [{"timestamp": 5, "content": "a"}]}]})
+        + "\n```"
+    )
+    md, outline = parse_outline_json(body)
     assert "Some intro" in md
-    assert chapters == [{"time": 5, "title": "x"}]
+    assert len(outline) == 1
+    assert outline[0]["title"] == "x"
+
+
+def test_parse_outline_json_coerces_types():
+    """String timestamps from a sloppy LLM should be coerced to int."""
+    body = (
+        "```json\n"
+        '{"outline": [{"title": "x", "timestamp": "30", "part_outline": '
+        '[{"timestamp": "35", "content": "c"}, {"timestamp": "40", "content": "d"}]}]}\n'
+        "```\n"
+    )
+    _, outline = parse_outline_json(body)
+    assert len(outline) == 1
+    assert outline[0]["timestamp"] == 30
+    assert outline[0]["part_outline"][0]["timestamp"] == 35
+
+
+def test_parse_outline_json_drops_empty_part_outline():
+    """Sections with empty or missing part_outline are dropped (avoids empty
+    chapter rows in the UI)."""
+    body = (
+        "```json\n"
+        '{"outline": [\n'
+        '  {"title": "ok", "timestamp": 0, "part_outline": [{"timestamp": 0, "content": "a"}]},\n'
+        '  {"title": "empty_parts", "timestamp": 90, "part_outline": []},\n'
+        '  {"title": "no_parts_key", "timestamp": 180}\n'
+        ']}\n'
+        "```\n"
+    )
+    _, outline = parse_outline_json(body)
+    assert len(outline) == 1
+    assert outline[0]["title"] == "ok"
+
+
+def test_parse_outline_json_drops_malformed_sections():
+    """Sections missing required fields (title, timestamp) are silently dropped."""
+    body = (
+        "```json\n"
+        '{"outline": [\n'
+        '  {"title": "ok", "timestamp": 0, "part_outline": [{"timestamp": 0, "content": "a"}]},\n'
+        '  {"timestamp": 90, "part_outline": [{"timestamp": 90, "content": "b"}]},\n'
+        '  {"title": "no_timestamp", "part_outline": [{"timestamp": 0, "content": "c"}]},\n'
+        '  "not a dict"\n'
+        ']}\n'
+        "```\n"
+    )
+    _, outline = parse_outline_json(body)
+    assert len(outline) == 1
+    assert outline[0]["title"] == "ok"
 
 

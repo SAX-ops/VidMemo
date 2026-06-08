@@ -25,7 +25,7 @@ def _make_cache_key(url: str, language: str) -> str:
 @dataclass
 class CachedSummary:
     summary_md: str
-    chapters: list
+    outline: list
     subtitle_meta: dict
     cached_at: str  # ISO 8601
 
@@ -33,21 +33,24 @@ class CachedSummary:
         if isinstance(other, CachedSummary):
             return (
                 self.summary_md == other.summary_md
-                and self.chapters == other.chapters
+                and self.outline == other.outline
                 and self.subtitle_meta == other.subtitle_meta
                 and self.cached_at == other.cached_at
             )
         if isinstance(other, dict):
             return (
                 self.summary_md == other.get("summary_md")
-                and self.chapters == other.get("chapters")
+                and self.outline == other.get("outline")
                 and self.subtitle_meta == other.get("subtitle_meta")
                 and self.cached_at == other.get("cached_at")
             )
         return NotImplemented
 
     def __hash__(self):
-        return hash((self.summary_md, tuple(self.chapters), tuple(sorted(self.subtitle_meta.items())), self.cached_at))
+        # outline is a list of nested dicts, so tuple(self.outline) won't hash;
+        # serialize deterministically to get a stable hash.
+        outline_key = json.dumps(self.outline, sort_keys=True, ensure_ascii=False)
+        return hash((self.summary_md, outline_key, tuple(sorted(self.subtitle_meta.items())), self.cached_at))
 
 
 class SummaryCache:
@@ -61,6 +64,16 @@ class SummaryCache:
         entry = data.get(key)
         if not entry:
             return None
+        # Backward compat: old entries used `chapters` instead of `outline`.
+        # Treat them as misses so they get re-saved with the new schema on next
+        # request, rather than crashing the dataclass.
+        if "outline" not in entry and "chapters" in entry:
+            logging.warning(
+                "SummaryCache.get: entry %s uses old `chapters` schema, ignoring. "
+                "It will be re-saved with the new `outline` schema on next request.",
+                key,
+            )
+            return None
         # Check expiry
         cached_at = self._parse_iso(entry["cached_at"])
         if datetime.now(timezone.utc) - cached_at > self.ttl:
@@ -70,7 +83,7 @@ class SummaryCache:
             return None
         return CachedSummary(
             summary_md=entry["summary_md"],
-            chapters=entry["chapters"],
+            outline=entry["outline"],
             subtitle_meta=entry["subtitle_meta"],
             cached_at=entry["cached_at"],
         )
@@ -80,14 +93,14 @@ class SummaryCache:
         if isinstance(data, CachedSummary):
             payload = {
                 "summary_md": data.summary_md,
-                "chapters": data.chapters,
+                "outline": data.outline,
                 "subtitle_meta": data.subtitle_meta,
                 "cached_at": data.cached_at,
             }
         else:
             payload = {
                 "summary_md": data["summary_md"],
-                "chapters": data["chapters"],
+                "outline": data["outline"],
                 "subtitle_meta": data["subtitle_meta"],
                 "cached_at": data["cached_at"],
             }

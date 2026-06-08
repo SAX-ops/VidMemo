@@ -15,7 +15,7 @@ from services import summarizer as summarizer_service
 from services.summarizer import (
     SubtitleExtractor,
     build_summarizer,
-    parse_chapter_json,
+    parse_outline_json,
 )
 from services.summary_cache import SummaryCache
 
@@ -67,7 +67,7 @@ async def summarize(req: SummarizeRequest) -> StreamingResponse:
         async def gen():
             yield _sse("cache_hit", {
                 "summary": cached.summary_md,
-                "chapters": cached.chapters,
+                "outline": cached.outline,
                 "subtitle_meta": cached.subtitle_meta,
                 "cached_at": cached.cached_at,
             })
@@ -147,7 +147,7 @@ async def _stream_summary(req: SummarizeRequest, cache: SummaryCache) -> AsyncIt
             yield _sse("error", {"message": f"AI 总结服务暂时不可用：{e}", "code": "llm_error"})
             return
 
-        yield _sse("chapters", {"chapters": []})
+        yield _sse("outline", {"outline": []})
         yield _sse("done", "[DONE]")
         return
 
@@ -193,10 +193,10 @@ async def _stream_summary(req: SummarizeRequest, cache: SummaryCache) -> AsyncIt
         yield _sse("error", {"message": f"AI 总结服务暂时不可用：{e}", "code": "llm_error"})
         return
 
-    # Step 4: parse chapters from accumulated body
+    # Step 4: parse outline from accumulated body
     full_body = "".join(accumulated)
-    md, chapters = parse_chapter_json(full_body)
-    yield _sse("chapters", {"chapters": chapters})
+    md, outline = parse_outline_json(full_body)
+    yield _sse("outline", {"outline": outline})
 
     # Step 5: write to cache
     # Store the full subtitle payload (segments + full_text + fallback_mode)
@@ -204,7 +204,7 @@ async def _stream_summary(req: SummarizeRequest, cache: SummaryCache) -> AsyncIt
     # the metadata.
     cache.set(req.url, req.language, {
         "summary_md": md,
-        "chapters": chapters,
+        "outline": outline,
         "subtitle_meta": {
             k: subtitle[k] for k in (
                 "has_subtitle", "language", "subtitle_type", "is_target_language",
