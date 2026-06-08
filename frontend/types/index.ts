@@ -33,3 +33,28 @@ export interface DownloadState {
   progress: ProgressUpdate | null
   error: string | null
 }
+
+export interface SubtitleSegment {
+  start: number
+  end: number
+  text: string
+}
+
+export interface SubtitleData {
+  has_subtitle: boolean
+  language: string
+  subtitle_type: 'manual' | 'auto' | 'none'
+  is_target_language: boolean
+  fallback_mode?: 'metadata'
+  segments: SubtitleSegment[]
+  full_text: string
+}
+
+export interface Chapter {
+  time: number
+  title: string
+}
+
+export interface ChapterList {
+  chapters: Chapter[]
+}
