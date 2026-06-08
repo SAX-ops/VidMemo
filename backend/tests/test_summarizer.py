@@ -401,8 +401,8 @@ def test_summarize_stream_standard_prompt_is_distinct_from_mock_body(monkeypatch
 
     list(s.summarize_stream("字幕内容", "zh", has_subtitle=True))
     prompt = captured["messages"][1]["content"]
-    # "深度总结分析" is unique to SUMMARY_PROMPT_STANDARD (not in MockSummarizer.BODY)
-    assert "深度总结分析" in prompt
+    # "结构化深度总结" is unique to SUMMARY_PROMPT_STANDARD (not in MockSummarizer.BODY)
+    assert "结构化深度总结" in prompt
     # Make sure we did NOT accidentally return the unformatted template
     # (note: SUMMARY_PROMPT_STANDARD intentionally has {{...}} which renders to {...} in
     # the JSON example, so we check the placeholders directly instead of bare braces)
@@ -411,6 +411,51 @@ def test_summarize_stream_standard_prompt_is_distinct_from_mock_body(monkeypatch
     assert "{duration}" not in prompt
     # Sanity: prompt is substantively different from mock body
     assert len(prompt) != len(MockSummarizer.BODY)
+
+
+def test_standard_prompt_enforces_markdown_h2_headers():
+    """Regression: MiMo previously emitted `1. 视频概述` instead of `## 视频概述`.
+    Prompt must use `##` as the main section marker and explicitly forbid
+    numbered-list style."""
+    from services.summarizer import SUMMARY_PROMPT_STANDARD
+    p = SUMMARY_PROMPT_STANDARD
+    # Use `## ` (markdown H2) as the canonical main-section marker
+    assert "## 视频概述" in p
+    assert "## 内容大纲" in p
+    assert "## 核心知识要点" in p
+    assert "## 总结" in p
+    # Must contain a full JSON example with the correct outer braces (the bug
+    # was `chapters": [...]` missing the opening `{"`)
+    assert '{{"chapters": [' in p
+    # Must explicitly forbid the wrong style so the LLM sees a DO/DON'T
+    assert "不要" in p  # "do not write 1. 视频概述"
+    # Content outline must use `### ` (H3) for sub-chapters
+    assert "### " in p
+
+
+def test_standard_prompt_has_full_output_example():
+    """The prompt should embed a complete expected-output example so the LLM
+    has a concrete shape to imitate (avoids the MiMo bug where it dropped
+    section markers and the JSON outer braces)."""
+    from services.summarizer import SUMMARY_PROMPT_STANDARD
+    p = SUMMARY_PROMPT_STANDARD
+    # The example block should show the exact "## 视频概述\n(...)" pattern
+    assert "## 视频概述" in p
+    assert "## 内容大纲" in p
+    assert "## 核心知识要点" in p
+    assert "## 总结" in p
+    assert "## 章节时间戳" in p
+    # The example should show sub-chapters (### xxx) and a JSON code fence
+    assert "### " in p
+    assert "```json" in p
+    # And the JSON example must include a complete {"chapters": [...]} with
+    # at least one entry so the LLM sees the exact shape. `{{"time":` appears
+    # in the template; the `title` key sits in the same dict as `time`, so
+    # check the bare `"title":` (post-format form is also valid in the
+    # template since the value is just text).
+    assert "{{\"chapters\":" in p
+    assert "{{\"time\":" in p
+    assert "\"title\":" in p
 
 
 def test_summarize_stream_filters_none_and_empty_chunk_content(monkeypatch):
