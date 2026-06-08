@@ -64,3 +64,65 @@ async def test_cache_hit_short_circuits_to_done(tmp_path, monkeypatch):
             assert "subtitle" not in event_names
             assert "summary" not in event_names
             assert "chapters" not in event_names
+
+
+@pytest.mark.asyncio
+async def test_no_subtitle_and_no_metadata_emits_error(tmp_path, monkeypatch):
+    """Subtitle extraction returns empty, video has no metadata → SSE error event."""
+    monkeypatch.setenv("SUMMARY_CACHE_PATH", str(tmp_path / "cache.json"))
+
+    from services.summarizer import SubtitleExtractor
+    def fake_extract(self, url, language="zh"):
+        return {"has_subtitle": False, "language": "", "subtitle_type": "none",
+                "is_target_language": False, "fallback_mode": None,
+                "segments": [], "full_text": ""}
+    monkeypatch.setattr(SubtitleExtractor, "extract", fake_extract)
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        async with ac.stream(
+            "POST", "/api/summarize",
+            json={"url": "https://example.com/no-sub", "language": "zh"},
+        ) as r:
+            text = (await r.aread()).decode("utf-8")
+            events = _parse_sse(text)
+            event_names = [e[0] for e in events]
+            assert "error" in event_names
+            err = next(d for e, d in events if e == "error")
+            err_data = json.loads(err)
+            assert "既无字幕也无元数据" in err_data["message"]
+
+
+@pytest.mark.asyncio
+async def test_full_flow_with_subtitles_emits_all_events(tmp_path, monkeypatch):
+    """Subtitles found → subtitle → summary (tokens) → chapters → done."""
+    monkeypatch.setenv("SUMMARY_CACHE_PATH", str(tmp_path / "cache.json"))
+    monkeypatch.setenv("SUMMARY_MOCK", "true")
+    monkeypatch.setenv("SUMMARY_MOCK_DELAY_MS", "0")
+
+    from services.summarizer import SubtitleExtractor
+    def fake_extract(self, url, language="zh"):
+        return {"has_subtitle": True, "language": "zh-Hans", "subtitle_type": "manual",
+                "is_target_language": True, "fallback_mode": None,
+                "segments": [{"start": 0, "end": 1, "text": "你好"}],
+                "full_text": "你好"}
+    monkeypatch.setattr(SubtitleExtractor, "extract", fake_extract)
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        async with ac.stream(
+            "POST", "/api/summarize",
+            json={"url": "https://example.com/with-sub", "language": "zh"},
+        ) as r:
+            text = (await r.aread()).decode("utf-8")
+            events = _parse_sse(text)
+            event_names = [e[0] for e in events]
+            assert event_names[0] == "subtitle"
+            assert "summary" in event_names
+            assert "chapters" in event_names
+            assert event_names[-1] == "done"
+
+            # Verify chapters are valid JSON with the expected shape
+            chapters_data = json.loads(next(d for e, d in events if e == "chapters"))
+            assert "chapters" in chapters_data
+            assert isinstance(chapters_data["chapters"], list)

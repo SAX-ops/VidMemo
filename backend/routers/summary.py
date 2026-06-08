@@ -1,7 +1,10 @@
 """AI 视频总结路由 — SSE 流式端点。"""
 
+import asyncio
 import json
 import os
+from collections.abc import AsyncIterable
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
@@ -55,9 +58,9 @@ def _sse(event: str, data) -> str:
 
 @router.post("/summarize")
 async def summarize(req: SummarizeRequest) -> StreamingResponse:
-    """Stream an AI video summary as SSE events."""
-    # Cache lookup (short-circuit if hit)
     cache = _get_cache()
+
+    # Cache lookup
     cached = cache.get(req.url, req.language)
     if cached is not None:
         async def gen():
@@ -70,5 +73,78 @@ async def summarize(req: SummarizeRequest) -> StreamingResponse:
             yield _sse("done", "[DONE]")
         return StreamingResponse(gen(), media_type="text/event-stream")
 
-    # Fall through to the streaming path (added in Task 14)
-    raise HTTPException(status_code=501, detail="Not implemented in this task")
+    # No cache → run the full flow
+    return StreamingResponse(
+        _stream_summary(req, cache),
+        media_type="text/event-stream",
+    )
+
+
+async def _stream_summary(req: SummarizeRequest, cache: SummaryCache) -> AsyncIterable[str]:
+    loop = asyncio.get_event_loop()
+    extractor = _get_extractor()
+
+    # Step 1: extract subtitles (blocking → thread)
+    try:
+        subtitle = await loop.run_in_executor(None, extractor.extract, req.url, req.language)
+    except Exception as e:
+        yield _sse("error", {"message": f"无法获取字幕：{e}"})
+        return
+
+    if not subtitle["has_subtitle"]:
+        # Try metadata fallback (we don't have video info in this path; signal user via error)
+        yield _sse("error", {
+            "message": "该视频既无字幕也无元数据，无法生成总结。",
+            "code": "no_content",
+        })
+        return
+
+    # Step 2: send subtitle event
+    yield _sse("subtitle", subtitle)
+
+    # Step 3: stream summary tokens + collect
+    summarizer = build_summarizer()
+    accumulated: list[str] = []
+    timeout = int(os.getenv("SUMMARY_TIMEOUT", "90"))
+    full_text_len = len(subtitle.get("full_text") or "")
+    effective_timeout = max(timeout, full_text_len // 200)
+
+    try:
+        async def run_summarize():
+            for tok in summarizer.summarize_stream(
+                subtitle.get("full_text", ""),
+                req.language,
+                has_subtitle=True,
+            ):
+                accumulated.append(tok)
+                yield _sse("summary", tok)
+
+        # Run the stream in a thread, forward tokens, enforce timeout
+        gen = run_summarize()
+        while True:
+            try:
+                chunk = await asyncio.wait_for(gen.__anext__(), timeout=effective_timeout)
+                yield chunk
+            except StopAsyncIteration:
+                break
+    except asyncio.TimeoutError:
+        yield _sse("error", {"message": f"AI 总结超时（{effective_timeout}s），请重试或换一个较短的字幕", "code": "timeout"})
+        return
+    except Exception as e:
+        yield _sse("error", {"message": f"AI 总结服务暂时不可用：{e}", "code": "llm_error"})
+        return
+
+    # Step 4: parse chapters from accumulated body
+    full_body = "".join(accumulated)
+    md, chapters = parse_chapter_json(full_body)
+    yield _sse("chapters", {"chapters": chapters})
+
+    # Step 5: write to cache
+    cache.set(req.url, req.language, {
+        "summary_md": md,
+        "chapters": chapters,
+        "subtitle_meta": {k: subtitle[k] for k in ("has_subtitle", "language", "subtitle_type", "is_target_language")},
+        "cached_at": datetime.now(timezone.utc).isoformat(),
+    })
+
+    yield _sse("done", "[DONE]")
