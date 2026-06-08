@@ -324,3 +324,107 @@ def test_summarize_stream_uses_fallback_prompt_without_subtitles(monkeypatch):
     assert "X" in prompt
 
 
+def test_summarize_stream_uses_english_hint_when_language_not_zh(monkeypatch):
+    """I1: language='en' should use '与原文相同的语言' instead of '中文'."""
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    monkeypatch.setenv("SUMMARY_TIMEOUT", "10")
+    monkeypatch.setenv("SUMMARY_MOCK", "false")
+
+    from services.summarizer import VideoSummarizer
+    s = VideoSummarizer()
+    captured = {}
+    def fake_create(**kwargs):
+        captured["messages"] = kwargs.get("messages")
+        return FakeStreamingResponse(["x"])
+    s.client.chat.completions.create = fake_create
+
+    list(s.summarize_stream("English subtitles", "en", has_subtitle=True))
+    prompt = captured["messages"][1]["content"]
+    assert "与原文相同的语言" in prompt
+    assert "中文" not in prompt
+
+
+def test_summarize_stream_fallback_handles_none_video_meta(monkeypatch):
+    """I2: video_meta=None should produce '（未知）' sentinels for title/platform."""
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    monkeypatch.setenv("SUMMARY_TIMEOUT", "10")
+    monkeypatch.setenv("SUMMARY_MOCK", "false")
+
+    from services.summarizer import VideoSummarizer
+    s = VideoSummarizer()
+    captured = {}
+    def fake_create(**kwargs):
+        captured["messages"] = kwargs.get("messages")
+        return FakeStreamingResponse(["x"])
+    s.client.chat.completions.create = fake_create
+
+    list(s.summarize_stream("placeholder", "zh", has_subtitle=False, video_meta=None))
+    prompt = captured["messages"][1]["content"]
+    assert "没有可用的字幕" in prompt
+    assert "（未知）" in prompt
+
+
+def test_summarize_stream_uses_chinese_system_prompt(monkeypatch):
+    """I3: messages[0] should be a system message with the Chinese assistant persona."""
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    monkeypatch.setenv("SUMMARY_TIMEOUT", "10")
+    monkeypatch.setenv("SUMMARY_MOCK", "false")
+
+    from services.summarizer import VideoSummarizer
+    s = VideoSummarizer()
+    captured = {}
+    def fake_create(**kwargs):
+        captured["messages"] = kwargs.get("messages")
+        return FakeStreamingResponse(["x"])
+    s.client.chat.completions.create = fake_create
+
+    list(s.summarize_stream("字幕", "zh", has_subtitle=True))
+    system_msg = captured["messages"][0]
+    assert system_msg["role"] == "system"
+    assert "视频内容分析助手" in system_msg["content"]
+
+
+def test_summarize_stream_standard_prompt_is_distinct_from_mock_body(monkeypatch):
+    """I4: assert distinct-header strings (not the same as MockSummarizer.BODY)."""
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    monkeypatch.setenv("SUMMARY_TIMEOUT", "10")
+    monkeypatch.setenv("SUMMARY_MOCK", "false")
+
+    from services.summarizer import VideoSummarizer, MockSummarizer
+    s = VideoSummarizer()
+    captured = {}
+    def fake_create(**kwargs):
+        captured["messages"] = kwargs.get("messages")
+        return FakeStreamingResponse(["x"])
+    s.client.chat.completions.create = fake_create
+
+    list(s.summarize_stream("字幕内容", "zh", has_subtitle=True))
+    prompt = captured["messages"][1]["content"]
+    # "深度总结分析" is unique to SUMMARY_PROMPT_STANDARD (not in MockSummarizer.BODY)
+    assert "深度总结分析" in prompt
+    # Make sure we did NOT accidentally return the unformatted template
+    # (note: SUMMARY_PROMPT_STANDARD intentionally has {{...}} which renders to {...} in
+    # the JSON example, so we check the placeholders directly instead of bare braces)
+    assert "{language}" not in prompt
+    assert "{subtitle}" not in prompt
+    assert "{duration}" not in prompt
+    # Sanity: prompt is substantively different from mock body
+    assert len(prompt) != len(MockSummarizer.BODY)
+
+
+def test_summarize_stream_filters_none_and_empty_chunk_content(monkeypatch):
+    """I5: chunks with None or '' content should be filtered out (OpenAI emits these)."""
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    monkeypatch.setenv("SUMMARY_TIMEOUT", "10")
+    monkeypatch.setenv("SUMMARY_MOCK", "false")
+
+    from services.summarizer import VideoSummarizer
+    s = VideoSummarizer()
+    s.client.chat.completions.create = lambda **kwargs: FakeStreamingResponse(["", None, "Hi", None, " there", ""])
+
+    tokens = list(s.summarize_stream("subtitle text", "zh"))
+    assert "".join(tokens) == "Hi there"
+    # No literal "None" string leaked through
+    assert "None" not in "".join(tokens)
+
+
