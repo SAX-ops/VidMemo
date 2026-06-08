@@ -720,5 +720,18 @@ const formatDuration = (seconds: number) => {
   const secs = seconds % 60
   return `${mins}:${secs.toString().padStart(2, '0')}`
 }
+
+// Expose play/pause/seek controls so parent (index.vue) and sibling
+// components (VideoSummary) can drive the player — e.g. chapter click
+// jumps currentTime and starts playback. The ref inside this component
+// is `videoPlayer` (ref to the <video> element), not `video`.
+defineExpose({
+  play: () => videoPlayer.value?.play(),
+  pause: () => videoPlayer.value?.pause(),
+  setCurrentTime: (t: number) => {
+    if (videoPlayer.value) videoPlayer.value.currentTime = t
+  },
+  getCurrentTime: () => videoPlayer.value?.currentTime ?? 0,
+})
 </script>
 
