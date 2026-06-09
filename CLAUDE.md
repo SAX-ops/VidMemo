@@ -61,6 +61,9 @@ Tests are integration-only — they hit the real backend, real proxy, and real v
 - **`services/ytdlp.py`** — `YtdlpService` class wrapping yt-dlp Python API. Key methods: `parse_url()` (extract video info, DASH audio URL detection), `start_download()` (begin async download with progress hooks). Helpers: `_get_firefox_cookie_file()` (read Bilibili cookies), `_download_instagram_thumbnail()` (cache Instagram thumbnails), `_try_with_cookie_fallback()`, `_detect_proxy()` (auto-detect GFW proxy from env vars / common ports), `_needs_proxy()` (GFW site check), `_strip_ansi()` (clean progress strings).
 - **`services/douyin.py`** — Douyin (抖音) 自实现 API since yt-dlp's extractor is broken since 2024-04 (missing `a_bogus`). Calls `aweme/v1/web/aweme/detail/` directly with custom params, `ttwid` cookie from `ttwid.bytedance.com`.
 - **`services/abogus.py`** — `a_bogus` signature generator for Douyin (bypasses anti-scraping).
+- **`services/summarizer.py`** — AI video summary module. Two-stage LLM pipeline: Stage 1 (`SUMMARY_MODEL`, default `mimo-v2.5`) generates chapter outlines via semantic segmentation (TF-IDF cosine similarity) + LLM summarization. Stage 2 (`EXECUTIVE_SUMMARY_MODEL`, default `mimo-v2-flash`) generates executive summary (core topic, key insights, author conclusion) with quality validation and retry logic. Key functions: `SubtitleExtractor.extract()`, `_semantic_segment()`, `parse_outline_json()`, `generate_executive_summary()`, `parse_executive_summary()`. Config: `OPENAI_API_KEY`, `SUMMARY_BASE_URL`, `SUMMARY_MODEL`, `EXECUTIVE_SUMMARY_MODEL`, `EXECUTIVE_SUMMARY_TIMEOUT`.
+- **`services/summary_cache.py`** — File-based summary cache (JSON, 30-day TTL). Stores `summary_md`, `outline`, `executive_summary`, `subtitle_meta`.
+- **`routers/summary.py`** — `POST /api/summarize` SSE endpoint. Events: `cache_hit`, `subtitle`, `summary` (streaming tokens), `outline`, `summary_md`, `executive_summary`, `done`, `error`.
 
 **Critical pattern**: yt-dlp runs in a background thread via `asyncio.to_thread()` to avoid blocking the event loop. Progress updates flow through `progress_hooks` callback → in-memory task dict → WebSocket push to frontend. Progress is calculated as byte-proportional across multiple files (video + audio) by detecting file switches via `filename` changes (not byte reset, which is unreliable).
 
@@ -77,7 +80,7 @@ Tests are integration-only — they hit the real backend, real proxy, and real v
 ### Frontend (`frontend/`)
 
 - **`pages/index.vue`** — Main page: orchestrates URL parsing, video preview, download flow, WebSocket connection
-- **`components/`** — `DownloadInput.vue` (URL input with dynamic button text "解析视频"/"解析中..." + loading spinner), `VideoPreview.vue` (custom video player with DASH audio sync, dynamic quality selector, download button), `ProgressTracker.vue` (progress bar + status), `PlatformList.vue` (supported platforms display)
+- **`components/`** — `DownloadInput.vue` (URL input with dynamic button text "解析视频"/"解析中..." + loading spinner), `VideoPreview.vue` (custom video player with DASH audio sync, dynamic quality selector, download button), `VideoSummary.vue` (AI summary panel: executive summary + chapter outline, SSE-driven with skeleton loading), `ProgressTracker.vue` (progress bar + status), `PlatformList.vue` (supported platforms display)
 - **`composables/useWebSocket.ts`** — WebSocket composable for real-time progress (currently inline in index.vue; composable exists but not fully integrated)
 - **`types/index.ts`** — TypeScript interfaces mirroring backend Pydantic models (includes `audio_url` for DASH)
 

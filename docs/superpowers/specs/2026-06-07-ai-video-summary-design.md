@@ -1,7 +1,7 @@
 # AI Video Summary — Design Spec
 
 **Date:** 2026-06-07
-**Status:** Design — revision 2, awaiting user approval
+**Status:** Implemented — revision 4
 **Scope:** Add AI-powered video summarization to VidSumAI, initially supporting YouTube and Bilibili (B站)
 
 ## Revision history
@@ -11,6 +11,7 @@
 | 1 | 2026-06-07 | Initial design |
 | 2 | 2026-06-07 | Review revisions: (1) metadata fallback when no subtitles (§3.4.2, §3.6); (2) strict prompt with dynamic chapter count + structured JSON output (§3.4); (3) file-based summary cache, 30-day TTL (§3.8); (4) `setCurrentTime`/`play` expose checklist (§4.5); (5) subtitle language fallback with UI banner (§3.2, §4.3); (6) SSE connection abort on unmount + re-click (§4.3, §4.4); (7) LLM timeout raised to 90s, dynamic for long subs (§3.3); (8) auto-play on chapter click (§4.6); (9) `SUMMARY_MOCK=true` for offline dev (§3.9); (10) Bilibili visitor-mode limitations documented (§4.7) |
 | 3 | 2026-06-07 | Review additions: (a) `onChapterClick` swallows `NotAllowedError` from `play()` (§4.6); (b) chapter JSON parse failure logs WARNING, not ERROR, and emits empty `chapters` without aborting the stream (§3.4.3); (c) `SUMMARY_MOCK_DELAY_MS` default 50ms, 0 for tests (§3.7, §3.9) |
+| 4 | 2026-06-09 | Two-stage architecture + Executive Summary + info architecture redesign. See §3.10, §3.11, §4.8 |
 
 ---
 
@@ -273,10 +274,12 @@ This means the frontend **never parses timestamps from markdown** — it always 
 
 | Event | Payload | When |
 |---|---|---|
-| `cache_hit` | JSON `{ "summary": str, "chapters": [...], "cached_at": str }` | Sent **first** if URL+language is in the cache (skips subtitle + LLM). The full stream is replayed from cache. |
+| `cache_hit` | JSON `{ "summary": str, "outline": [...], "executive_summary": dict\|null, "subtitle_meta": dict, "cached_at": str }` | Sent **first** if URL+language is in the cache (skips subtitle + LLM). |
 | `subtitle` | JSON `SubtitleData` | After subtitle extraction, before summarization. When `has_subtitle=false`, includes `fallback_mode: "metadata"` (see §3.6) |
-| `summary` | JSON string (single token) | Per LLM token, streamed. If LLM fails, no `summary` event is sent and `error` follows. |
-| `chapters` | JSON `{ "chapters": [{"time": 83, "title": "..."}, ...] }` | Sent **once** after the summary stream completes, parsed from the LLM's JSON block. Empty array `[]` on fallback / parse failure. |
+| `summary` | JSON string (single token) | Per LLM token, streamed (raw JSON — not rendered in frontend, kept for cache compatibility). |
+| `outline` | JSON `{ "outline": [OutlineSection, ...] }` | Sent once after Stage 1 LLM completes. Each section has `{title, timestamp, summary[], source_segments[]}`. |
+| `summary_md` | string | Overview markdown from Stage 1 (not rendered in UI, kept for cache). |
+| `executive_summary` | JSON `{core_topic, key_insights[], author_conclusion, controversies[]}` | Sent once after Stage 2 LLM completes. `null` when quality validation fails. |
 | `done` | `[DONE]` literal | Stream end (success). Note: cache hits also emit `done`. |
 | `error` | JSON `{ "message": str, "code": str }` | Any failure point |
 
@@ -314,7 +317,8 @@ All errors arrive as SSE `event: error` — the HTTP status stays 200 because th
 # AI Summary — set OPENAI_API_KEY (or ANTHROPIC_API_KEY) for live mode.
 # When SUMMARY_MOCK=true, OPENAI_API_KEY is not required (see §3.9).
 OPENAI_API_KEY=sk-xxx
-SUMMARY_MODEL=gpt-4o-mini
+SUMMARY_MODEL=gpt-4o-mini                     # Stage 1 (outline)
+EXECUTIVE_SUMMARY_MODEL=gpt-4o-mini           # Stage 2 (exec summary); falls back to SUMMARY_MODEL
 # SUMMARY_BASE_URL=https://api.deepseek.com   # uncomment to use DeepSeek
 SUMMARY_MOCK=false                            # set true for offline dev
 SUMMARY_MOCK_DELAY_MS=50                      # per-token yield rate; 0 for instant tests
@@ -339,7 +343,8 @@ class SummaryCache:
 @dataclass
 class CachedSummary:
     summary_md: str            # full streamed markdown body
-    chapters: list[dict]       # [{"time": int, "title": str}, ...]
+    outline: list[dict]        # [{title, timestamp, summary[], source_segments[]}, ...]
+    executive_summary: dict | None  # {core_topic, key_insights, author_conclusion, controversies}
     subtitle_meta: dict        # {has_subtitle, language, subtitle_type, ...}
     cached_at: str             # ISO 8601 timestamp
 ```
@@ -366,6 +371,55 @@ When `SUMMARY_MOCK=true`:
 Mock data lives in `services/summarizer.py` as a module-level constant `MOCK_SUMMARY_BODY` and `MOCK_CHAPTERS`. The token yield rate is configurable via `SUMMARY_MOCK_DELAY_MS` — **default 50 ms per token** (≈ 3 s total to stream the mock body, so the UI's loading spinner is visible long enough to validate), **`0` for tests** (instant, no spinner visible).
 
 Mock mode **bypasses the cache** (no need to cache mock data) and **bypasses the B站 cookie path** (uses a hardcoded mock URL).
+
+### 3.10 Two-stage architecture (Rev 4)
+
+The summary pipeline is split into two independent LLM calls:
+
+**Stage 1 — Outline + Semantic Segmentation:**
+1. Subtitle segments are grouped into semantic chapters via TF-IDF cosine similarity (computed in 30-second sliding windows). Boundary detection uses `mean + 0.75 * std` threshold with a 30-second minimum gap.
+2. Chapter text is sent to LLM1 (`SUMMARY_MODEL`, default `mimo-v2.5`) to generate titles and bullet-point summaries per chapter.
+3. LLM output is merged with segment-derived timestamps — timestamps come from segmentation, NOT from LLM.
+4. Output: `outline` SSE event with `[{title, timestamp, summary[], source_segments[]}]`.
+
+**Stage 2 — Executive Summary:**
+1. Structured outline is fed to LLM2 (`EXECUTIVE_SUMMARY_MODEL`) to generate a high-level executive summary.
+2. Output: `executive_summary` SSE event (see §3.11).
+
+This separation ensures timestamps are always accurate (derived from subtitle timing) while content analysis benefits from LLM understanding.
+
+### 3.11 Executive Summary (Rev 4)
+
+**Purpose:** Provide a video-level overview (core topic, key insights, author conclusion) distinct from the per-chapter outline.
+
+**Schema:**
+```json
+{
+  "core_topic": "string (10-30 chars)",
+  "key_insights": ["string (15-50 chars)", "..."],
+  "author_conclusion": "string (20-200 chars)",
+  "controversies": ["string"]
+}
+```
+
+**Configuration:**
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `EXECUTIVE_SUMMARY_MODEL` | falls back to `SUMMARY_MODEL` | Model for Stage 2 (independent from Stage 1) |
+| `EXECUTIVE_SUMMARY_TIMEOUT` | `30` | Timeout in seconds |
+
+**Quality validation** (`parse_executive_summary`):
+- `core_topic`: ≥ 20 chars, banned template patterns ("本视频介绍" etc.)
+- `key_insights`: ≥ 3 items, each ≥ 10 chars after filtering
+- `author_conclusion`: non-empty, banned template patterns ("视频围绕" etc.)
+- Dedup + length enforcement (50/200/50 chars)
+
+**Retry logic:** Up to 3 attempts. Retry condition is **parse success** (not string non-emptiness) — the model may return partial/truncated JSON that passes a simple truthiness check but fails validation.
+
+**Fallback:** Returns `None` when all attempts fail. Frontend hides the section (quality gate pattern: better no Executive Summary than low-quality content).
+
+**Prompt:** Concise format — chapter text as `[MM:SS] title\n• bullet` with strict JSON-only output instruction. Tested with `mimo-v2-flash` (reliable) vs `mimo-v2.5` (returns empty consistently).
 
 ---
 
@@ -509,6 +563,18 @@ VidSumAI runs in **visitor mode** by default (no B站 login). Visitor-mode limit
 
 If a user runs into "no subtitle" on a B站 video that they can normally see subtitles for, the likely cause is a member-only CC. The UI should not say "B站 字幕被墙" — it should fall back to the metadata-based summary (§3.4.2) and show the metadata-fallback banner.
 
+### 4.8 Frontend info architecture redesign (Rev 4)
+
+**Design principle:** "宁可没有 Executive Summary，也不要显示低质量或重复内容"
+
+**Changes:**
+- **Removed `summary_md` rendering** — the markdown body from Stage 1 is no longer displayed. It was redundant with the outline and executive summary.
+- **Two information layers only:** Executive Summary (video-level) + Outline (chapter-level).
+- **Skeleton loading pattern** for Executive Summary: after `outline` arrives, a spinner shows "正在生成视频概述..." until `executive_summary` arrives or `done` fires.
+- **Quality gate:** if `executive_summary` is `null` (Stage 2 LLM failed quality validation), the section is hidden entirely — no skeleton, no fallback content.
+- **SSE handler state:** `execSummaryLoading` ref tracks Stage 2 lifecycle (`true` on `outline`, `false` on `executive_summary`/`done`/`error`).
+- **`summary_md` handler** kept as no-op for cache compatibility: `(_data: string) => {}`.
+
 ---
 
 ## 5. Data Contracts (TypeScript)
@@ -538,6 +604,21 @@ export interface Chapter {
 
 export interface ChapterList {
   chapters: Chapter[]
+}
+
+// Rev 4 additions
+export interface OutlineSection {
+  title: string
+  timestamp: number       // seconds
+  summary: string[]       // bullet points
+  source_segments: number[]  // segment indices
+}
+
+export interface ExecutiveSummary {
+  core_topic: string
+  key_insights: string[]
+  author_conclusion: string
+  controversies: string[]
 }
 ```
 
