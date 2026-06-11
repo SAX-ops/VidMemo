@@ -1346,19 +1346,50 @@ def test_chat_prompt_respects_token_limit():
     assert len(prompt) <= _CHAT_PROMPT_MAX_CHARS
 
 
-def test_generate_chat_answer_returns_error_when_no_match(monkeypatch):
-    """generate_chat_answer should yield error when retrieval is empty."""
+def test_generate_chat_answer_fallback_to_outline_when_no_match(monkeypatch):
+    """When retrieval is empty, generate_chat_answer should fall back
+    to outline context (not return error) so the LLM can answer
+    overview questions like '这个视频讲什么'."""
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
     monkeypatch.setenv("CHAT_MODEL", "fake")
+
+    # Mock the LLM to return a streamable response
+    class _FakeChunk:
+        def __init__(self, content):
+            self.choices = [type("Choice", (), {"delta": type("Delta", (), {"content": content})()})]
+
+    class _FakeStream:
+        def __init__(self, chunks):
+            self._chunks = [_FakeChunk(c) for c in chunks]
+        def __iter__(self):
+            return iter(self._chunks)
+
+    fake_tokens = ["视频介绍了", "文档翻译平台 [[CH_0]]。"]
+    call_log = [0]
+
+    def fake_create(**kwargs):
+        # Verify the prompt includes outline (not empty)
+        prompt = kwargs["messages"][1]["content"]
+        assert "第 0 章" in prompt, "Prompt should include outline chapters"
+        assert "用户问题" in prompt
+        i = call_log[0]
+        call_log[0] += 1
+        return _FakeStream(fake_tokens)
+
+    class FakeClient:
+        def __init__(self, **kw): self.chat = type("C", (), {"completions": type("M", (), {"create": staticmethod(fake_create)})()})()
+
+    monkeypatch.setattr("openai.OpenAI", FakeClient)
 
     from services.summarizer import generate_chat_answer
     events = list(generate_chat_answer(
         "量子纠缠", _chat_outline(), _chat_segments(), None, "zh",
     ))
-    # Should yield exactly one error event, no LLM call
-    assert len(events) == 1
-    assert events[0][0] == "error"
-    assert "没有提到" in events[0][1]
+    # Should yield tokens + done (not error), because fallback provides outline
+    event_types = [e[0] for e in events]
+    assert "token" in event_types, "Should stream tokens from LLM"
+    assert "done" in event_types, "Should finish with done"
+    assert "error" not in event_types, "Should not return error in fallback mode"
 
 
 

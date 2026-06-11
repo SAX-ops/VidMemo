@@ -1318,9 +1318,13 @@ def generate_chat_answer(
     for ch_idx, hits in chapter_hits.items():
         logger.warning("[CHAT]   ch[%d] hits=%d top_score=%.3f",
                        ch_idx, len(hits), hits[0]["score"] if hits else 0)
+
+    # When retrieval finds nothing (e.g. meta-questions like "这个视频讲什么"
+    # where keywords like "视频" don't appear in subtitle text), fall back
+    # to using ALL chapters so the LLM can answer from outline summaries.
     if not chapter_hits:
-        yield ("error", "视频中没有提到这个问题")
-        return
+        logger.warning("[CHAT] no retrieval hits, falling back to outline-only context")
+        chapter_hits = {i: [] for i in range(len(outline))}
 
     valid_chapters = set(chapter_hits.keys())
 
