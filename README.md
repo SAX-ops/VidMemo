@@ -27,6 +27,9 @@
 - **No-watermark** — automatic for TikTok, Instagram
 - **GFW proxy auto-detect** — only routes GFW sites through local proxy
 - **Real-time progress** — WebSocket push of speed / ETA / bytes
+- **AI video summary** — two-stage LLM pipeline (chapter outline + executive summary) streamed via SSE, with file-based 30-day cache
+- **Timestamped chapters** — click any chapter to jump the video to that point
+- **Executive summary** — core topic, key insights, author conclusion, controversies (skeleton loader while Stage 2 LLM is in flight)
 
 ---
 
@@ -120,16 +123,19 @@ The backend auto-detects proxy from env vars or common ports (7890 / 10809 / 108
 VidSumAI/
 ├── frontend/                # Nuxt 3 + Vue 3 + Tailwind
 │   ├── pages/               # Routes (index.vue = main UI)
-│   ├── components/          # VideoPreview, DownloadInput, ProgressTracker, ...
+│   ├── components/          # VideoPreview, VideoSummary, DownloadInput, ProgressTracker, ...
 │   ├── composables/         # useWebSocket
 │   ├── types/               # TS interfaces mirroring backend models
 │   └── tests/e2e/           # Playwright integration tests
 ├── backend/                 # FastAPI
-│   ├── routers/             # /api/parse, /api/start-download, ...
+│   ├── routers/             # /api/parse, /api/start-download, /api/summarize, ...
 │   ├── services/
 │   │   ├── ytdlp.py         # yt-dlp Python API wrapper
 │   │   ├── douyin.py        # 抖音 自实现 API
-│   │   └── abogus.py        # a_bogus signature for 抖音
+│   │   ├── bilibili.py      # B站 subtitle extraction via DM API
+│   │   ├── abogus.py        # a_bogus signature for 抖音
+│   │   ├── summarizer.py    # two-stage LLM pipeline (outline + executive summary)
+│   │   └── summary_cache.py # file-based cache, 30-day TTL
 │   ├── downloads/           # gitignored
 │   ├── previews/            # gitignored, 30min auto-clean
 │   └── thumbnails/          # gitignored
@@ -157,6 +163,7 @@ VidSumAI/
 | `POST` | `/api/preview-merge` | Merge separate DASH video + audio streams |
 | `GET`  | `/api/thumbnail/{filename}` | Locally cached thumbnails (Instagram) |
 | `POST` | `/api/open-folder` | Open download folder in OS file explorer |
+| `POST` | `/api/summarize` | SSE stream of AI video summary (outline + executive summary, with 30-day cache) |
 
 Full API spec: see [`docs/superpowers/specs/2026-04-25-vidsumai-design.md`](docs/superpowers/specs/2026-04-25-vidsumai-design.md).
 
@@ -207,6 +214,7 @@ VidSumAI 是一款多平台视频下载工具，支持 YouTube、Bilibili、Inst
 - **DASH 音视频同步** — B 站、YouTube、小红书等分离流的音画同步播放
 - **缓冲进度条** — YouTube 风格的灰色加载指示
 - **GFW 代理自动检测** — 只对被墙站点启用本地代理
+- **AI 视频总结** — 两阶段 LLM 流水线：章节大纲 + 视频概述，SSE 流式输出，30 天文件缓存
 
 **安装启动**：
 

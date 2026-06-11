@@ -1,5 +1,5 @@
 <template>
-  <div v-if="visible" class="bg-dark-card border border-dark-border rounded-2xl overflow-hidden mt-6">
+  <div v-if="visible" data-testid="video-summary-panel" class="bg-dark-card border border-dark-border rounded-2xl overflow-hidden mt-6">
     <!-- Tab nav -->
     <div class="flex border-b border-dark-border">
       <button
@@ -31,8 +31,77 @@
           ✓ 来自缓存 ({{ cacheBadge }})
         </div>
 
+        <!-- Loading spinner (initial phase: extracting subtitles / generating outline) -->
+        <div v-if="loading" class="flex flex-col items-center py-12 gap-3">
+          <div class="w-10 h-10 border-4 border-white/20 border-t-primary-from rounded-full animate-spin" />
+          <span class="text-text-secondary text-sm">{{ loadingMessage }}</span>
+        </div>
+
+        <!-- Error -->
+        <div v-if="errorMessage" class="px-4 py-3 rounded-lg bg-red-500/10 border border-red-500/30 text-red-300 text-sm mb-4">
+          {{ errorMessage }}
+        </div>
+
+        <!-- Executive Summary — always rendered when outline exists (skeleton or real content) -->
+        <div v-if="outline.length > 0" class="mb-4" data-testid="executive-summary-wrapper">
+          <!-- Skeleton: waiting for Stage 2 LLM -->
+          <div
+            v-if="execSummaryLoading && !executiveSummary"
+            class="border border-white/10 rounded-lg p-4 bg-white/5"
+          >
+            <div class="flex items-center gap-3">
+              <div class="w-4 h-4 border-2 border-white/20 border-t-primary-from rounded-full animate-spin" />
+              <span class="text-text-secondary text-sm">正在生成视频概述...</span>
+            </div>
+          </div>
+
+          <!-- Real content -->
+          <div
+            v-else-if="executiveSummary && (executiveSummary.core_topic || executiveSummary.key_insights?.length || executiveSummary.author_conclusion)"
+            class="border border-white/10 rounded-lg p-3 bg-white/5"
+            data-testid="executive-summary"
+          >
+            <button
+              @click="showExecSummary = !showExecSummary"
+              class="flex items-center gap-2 w-full text-left group"
+            >
+              <h3 class="text-sm font-semibold text-text-secondary">视频概述</h3>
+              <span class="text-xs text-text-secondary/60">{{ showExecSummary ? '收起' : '查看详情' }}</span>
+              <svg class="w-3 h-3 text-text-secondary/60 transition-transform ml-auto" :class="{ 'rotate-180': showExecSummary }" viewBox="0 0 20 20" fill="currentColor">
+                <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
+              </svg>
+            </button>
+            <div v-show="showExecSummary" class="space-y-3 mt-3">
+              <p v-if="executiveSummary.core_topic" class="text-white text-sm font-medium leading-relaxed">{{ executiveSummary.core_topic }}</p>
+              <div v-if="executiveSummary.key_insights?.length">
+                <p class="text-xs text-text-secondary mb-1">关键观点</p>
+                <ul class="space-y-1">
+                  <li v-for="(item, i) in executiveSummary.key_insights" :key="i" class="flex items-start gap-2 text-sm text-text-secondary">
+                    <span class="text-primary-from mt-0.5">•</span>
+                    <span class="line-clamp-2">{{ item }}</span>
+                  </li>
+                </ul>
+              </div>
+              <div v-if="executiveSummary.author_conclusion">
+                <p class="text-xs text-text-secondary mb-1">作者结论</p>
+                <p class="text-sm text-text-secondary leading-relaxed line-clamp-3">{{ executiveSummary.author_conclusion }}</p>
+              </div>
+              <div v-if="executiveSummary.controversies?.length">
+                <p class="text-xs text-text-secondary mb-1">争议与讨论</p>
+                <ul class="space-y-1">
+                  <li v-for="(item, i) in executiveSummary.controversies" :key="i" class="flex items-start gap-2 text-sm text-yellow-300/80">
+                    <span class="mt-0.5">⚡</span>
+                    <span class="line-clamp-2">{{ item }}</span>
+                  </li>
+                </ul>
+              </div>
+            </div>
+          </div>
+          <!-- else: execSummaryLoading=false && executiveSummary=null → hidden (quality gate) -->
+        </div>
+
         <!-- Outline tree (from JSON event) -->
-        <div v-if="outline.length > 0" class="mb-4">
+        <div v-if="outline.length > 0" data-testid="summary-outline">
           <h3 class="text-sm font-semibold text-text-secondary mb-2">视频大纲</h3>
           <div class="space-y-3">
             <div v-for="(sec, idx) in outline" :key="idx">
@@ -43,29 +112,17 @@
                 <span class="text-primary-from font-mono text-xs min-w-[50px]">{{ formatTime(sec.timestamp) }}</span>
                 <span class="text-white text-sm font-medium">{{ sec.title }}</span>
               </button>
-              <ul v-if="sec.part_outline?.length" class="mt-1 ml-12 space-y-0.5">
+              <ul v-if="sec.summary?.length" class="mt-1 ml-12 space-y-0.5">
                 <li
-                  v-for="(part, pidx) in sec.part_outline"
+                  v-for="(item, pidx) in sec.summary"
                   :key="pidx"
-                  @click="onOutlineClick(part.timestamp)"
-                  class="flex items-start gap-3 px-3 py-1.5 rounded hover:bg-dark-bg/30 cursor-pointer transition-colors"
+                  class="flex items-start gap-3 px-3 py-1.5"
                 >
-                  <span class="text-text-secondary font-mono text-xs min-w-[50px] pt-0.5">{{ formatTime(part.timestamp) }}</span>
-                  <span class="text-text-secondary text-sm">{{ part.content }}</span>
+                  <span class="text-text-secondary text-sm">{{ item }}</span>
                 </li>
               </ul>
             </div>
           </div>
-        </div>
-
-        <!-- Summary markdown (rendered) -->
-        <div v-if="summaryText" class="prose prose-invert prose-sm max-w-none" v-html="renderedSummary" />
-        <div v-else-if="loading" class="flex flex-col items-center py-12 gap-3">
-          <div class="w-10 h-10 border-4 border-white/20 border-t-primary-from rounded-full animate-spin" />
-          <span class="text-text-secondary text-sm">{{ loadingMessage }}</span>
-        </div>
-        <div v-else-if="errorMessage" class="px-4 py-3 rounded-lg bg-red-500/10 border border-red-500/30 text-red-300 text-sm">
-          {{ errorMessage }}
         </div>
       </div>
 
@@ -84,14 +141,45 @@
         <div v-else class="text-text-secondary text-sm text-center py-12">该视频暂无可用字幕</div>
       </div>
 
-      <!-- Mindmap tab (placeholder) -->
-      <div v-show="activeTab === 'mindmap'" class="text-center py-12 text-text-secondary text-sm">
-        思维导图将在下一迭代提供
+      <!-- Mindmap tab — v-if (not v-show) so MindMap mounts with real
+           container dimensions. Under v-show the container is display:none
+           when the tab is inactive, which makes Mind-Elixir initialize at
+           0×0 and clip all nodes invisibly. -->
+      <div v-if="activeTab === 'mindmap'" data-testid="mindmap-pane">
+        <div
+          v-if="mindmapLoading && !mindmap"
+          class="flex flex-col items-center py-12 gap-3"
+          data-testid="mindmap-loading"
+        >
+          <div class="w-10 h-10 border-4 border-white/20 border-t-primary-from rounded-full animate-spin" />
+          <span class="text-text-secondary text-sm">正在生成思维导图...</span>
+        </div>
+        <MindMap
+          v-else-if="mindmap"
+          :data="mindmap"
+          @node-click="onOutlineClick"
+          data-testid="mindmap"
+        />
+        <div
+          v-else
+          class="text-center py-12 text-text-secondary text-sm"
+          data-testid="mindmap-empty"
+        >
+          该视频暂未生成思维导图
+        </div>
       </div>
 
-      <!-- Q&A tab (placeholder) -->
-      <div v-show="activeTab === 'qa'" class="text-center py-12 text-text-secondary text-sm">
-        AI 问答将在下一迭代提供
+      <!-- Q&A tab -->
+      <div v-show="activeTab === 'qa'" data-testid="chat-pane" class="h-[480px]">
+        <ChatPanel
+          v-if="canChat"
+          :video-url="videoUrl"
+          @seek="onOutlineClick"
+        />
+        <div v-else class="flex flex-col items-center justify-center py-12 gap-2 text-center">
+          <p class="text-text-secondary text-sm">ℹ️ 该视频无可用字幕，无法进行问答。</p>
+          <p class="text-text-secondary/60 text-xs">请查看「字幕文本」标签页确认。</p>
+        </div>
       </div>
     </div>
   </div>
@@ -99,9 +187,10 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
-import { marked } from 'marked'
-import type { SubtitleData, OutlineSection as OutlineSectionT } from '~/types'
+import type { SubtitleData, OutlineSection as OutlineSectionT, ExecutiveSummary, MindmapData } from '~/types'
 import { useSSE } from '~/composables/useSSE'
+import MindMap from '~/components/MindMap.vue'
+import ChatPanel from '~/components/ChatPanel.vue'
 
 const props = defineProps<{
   visible: boolean
@@ -123,8 +212,10 @@ const tabs = [
 ] as const
 const activeTab = ref<typeof tabs[number]['key']>('summary')
 
-const summaryText = ref('')
 const outline = ref<OutlineSectionT[]>([])
+const executiveSummary = ref<ExecutiveSummary | null>(null)
+const mindmap = ref<MindmapData | null>(null)
+const showExecSummary = ref(false)
 const subtitleData = ref<SubtitleData>({
   has_subtitle: false,
   language: '',
@@ -135,6 +226,8 @@ const subtitleData = ref<SubtitleData>({
 })
 
 const loading = ref(false)
+const execSummaryLoading = ref(false)
+const mindmapLoading = ref(false)
 const loadingMessage = ref('正在提取视频字幕...')
 const errorMessage = ref('')
 const cacheBadge = ref('')
@@ -148,8 +241,9 @@ const fallbackBanner = computed(() =>
     ? '该视频无字幕，本总结基于标题生成（精度有限）'
     : ''
 )
-
-const renderedSummary = computed(() => summaryText.value ? marked.parse(summaryText.value) as string : '')
+const canChat = computed(() =>
+  subtitleData.value.has_subtitle && subtitleData.value.segments.length > 0
+)
 
 let currentAbort: (() => void) | null = null
 
@@ -172,8 +266,10 @@ function startStream() {
     currentAbort = null
   }
   // Reset state
-  summaryText.value = ''
   outline.value = []
+  executiveSummary.value = null
+  mindmap.value = null
+  showExecSummary.value = true
   errorMessage.value = ''
   cacheBadge.value = ''
   subtitleData.value = {
@@ -181,6 +277,8 @@ function startStream() {
     is_target_language: true, segments: [], full_text: '',
   }
   loading.value = true
+  execSummaryLoading.value = false
+  mindmapLoading.value = false
   loadingMessage.value = '正在提取视频字幕...'
 
   const config = useRuntimeConfig()
@@ -192,10 +290,13 @@ function startStream() {
     {
       cache_hit: (data: any) => {
         cacheBadge.value = data.cached_at
-        summaryText.value = data.summary
         outline.value = data.outline || []
+        executiveSummary.value = data.executive_summary || null
+        mindmap.value = data.mindmap || null
         subtitleData.value = { ...subtitleData.value, ...(data.subtitle_meta || {}) }
         loading.value = false
+        execSummaryLoading.value = false
+        mindmapLoading.value = false
         loadingMessage.value = '已从缓存加载'
       },
       subtitle: (data: any) => {
@@ -207,17 +308,51 @@ function startStream() {
         }
       },
       summary: (data: any) => {
-        summaryText.value += typeof data === 'string' ? data : JSON.stringify(data)
+        // Don't accumulate streaming tokens into summaryText —
+        // they contain raw JSON that would flash before summary_md arrives.
+        // The final clean content comes via the summary_md event.
       },
       outline: (data: any) => {
         outline.value = data.outline || []
+        loading.value = false
+        execSummaryLoading.value = true
+        // Both stage-2 LLM calls (exec summary + mindmap) start when the
+        // outline arrives; show the mindmap skeleton until the event lands
+        // (or `done` fires, indicating mindmap was skipped — see plan).
+        mindmapLoading.value = true
+        emit('loading-change', false)
+      },
+      summary_md: (_data: string) => {
+        // Received but not rendered — kept for cache compatibility
+      },
+      executive_summary: (data: any) => {
+        execSummaryLoading.value = false
+        if (data?.core_topic) {
+          executiveSummary.value = data
+        }
+      },
+      mindmap: (data: any) => {
+        mindmapLoading.value = false
+        // Defensive: validate shape before assigning (backend already
+        // validates, but a corrupt event shouldn't blank the tab).
+        if (data && typeof data.root === 'string' && Array.isArray(data.children)) {
+          mindmap.value = data
+        }
       },
       done: () => {
         loading.value = false
+        execSummaryLoading.value = false
+        // If we hit `done` without a mindmap event, the backend either
+        // skipped it (quality gate failed) or it's disabled — flip the
+        // loading flag off so the empty-state copy renders instead of
+        // an indefinite spinner.
+        mindmapLoading.value = false
         emit('loading-change', false)
       },
       error: (data: any) => {
         loading.value = false
+        execSummaryLoading.value = false
+        mindmapLoading.value = false
         errorMessage.value = data?.message || '总结失败'
         emit('loading-change', false)
       },

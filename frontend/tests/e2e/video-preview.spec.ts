@@ -143,11 +143,17 @@ test.describe('Video preview', () => {
   test.describe('B站 (flaky: cold cache + 412 retries)', () => {
     test.describe.configure({ retries: 1 })
 
-    test('plays via frontend dual-track (DASH video + audio)', async ({ page }) => {
-      await runPlatformTest(page, 'B站', BILIBILI_URL, async (video, audio) => {
-        // DASH-separated: audio element must have src
-        const audioSrc = await audio.getAttribute('src')
-        expect(audioSrc, 'B站 DASH audio src should be set').toBeTruthy()
+    test('plays via backend preview-stream (server-side merge)', async ({ page }) => {
+      let previewStreamRequestSeen = false
+      page.on('request', req => {
+        const u = req.url()
+        if (u.includes('/api/preview-stream') && u.includes('bilibili')) {
+          previewStreamRequestSeen = true
+        }
+      })
+      await runPlatformTest(page, 'B站', BILIBILI_URL, async () => {
+        // Server-side merge: single merged mp4, no dual-track
+        expect(previewStreamRequestSeen, 'B站 should have hit /api/preview-stream').toBe(true)
       })
     })
   })

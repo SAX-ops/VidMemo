@@ -12,9 +12,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - B站 service module with cookie-aware 1080P+ unlock
 - Server-side preview-stream integration tests
 - `docs/PRD.md` user-facing product requirements document
+- **AI video summary** — two-stage LLM pipeline (`POST /api/summarize` SSE endpoint)
+  - Stage 1: semantic segmentation (TF-IDF cosine similarity) → chapter outline via `SUMMARY_MODEL`
+  - Stage 2: executive summary (core topic, key insights, author conclusion, controversies) via `EXECUTIVE_SUMMARY_MODEL`
+  - File-based JSON cache (30-day TTL) with quality validation + retry logic
+  - Frontend panel with collapsible sections, skeleton loader during Stage 2
+- `services/bilibili.py` — dedicated Bilibili subtitle extraction via DM API
+- `composables/useSSE.ts` — typed SSE client with `abort()` for cancel-on-unmount
+- `components/QualitySelector.vue` — extracted quality dropdown from `VideoPreview`
 
 ### Changed
 - `yt-dlp` impersonation enabled by adding `curl-cffi` dependency (fixes intermittent TikTok failures)
+- Frontend summary panel redesigned to two info layers: executive summary + chapter outline (removed `summary_md` rendering to eliminate duplication)
+- `EXECUTIVE_SUMMARY_MODEL` defaults to `mimo-v2-flash` after `mimo-v2.5` was found to return empty responses consistently
+
+### Fixed
+- JSON outline leaking into the rendered `summary_md` markdown body
+- Stage 2 retry condition: now retries on parse failure instead of empty-string heuristic
 
 ## [0.1.0] - 2026-06-07
 

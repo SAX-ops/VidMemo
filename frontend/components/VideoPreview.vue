@@ -35,7 +35,7 @@
         class="absolute inset-0 flex flex-col items-center justify-center bg-black/60 gap-3 pointer-events-none"
       >
         <div class="w-12 h-12 rounded-full border-4 border-white/20 border-t-white animate-spin" />
-        <span class="text-white/80 text-xs">加载中...</span>
+        <span class="text-white/80 text-xs">{{ loadingMessage }}</span>
       </div>
 
       <!-- Hidden audio element for DASH-separated streams -->
@@ -192,6 +192,8 @@ const isPlaying = ref(false)
 const isPaused = ref(false)
 const isMuted = ref(false)
 const isLoading = ref(false)
+const loadingMessage = ref('加载中...')
+const useServerSide = ref(false)
 const currentTime = ref(0)
 const duration = ref(0)
 const progressPercent = ref(0)
@@ -307,6 +309,8 @@ function stopCurrentPreview() {
   stopAudio()
   isPaused.value = false
   isLoading.value = false
+  useServerSide.value = false
+  loadingMessage.value = '加载中...'
   currentTime.value = 0
   duration.value = 0
   progressPercent.value = 0
@@ -672,18 +676,22 @@ async function startPreview() {
   // Use server-side (yt-dlp download+merge) when:
   // 1. Platform blocks direct CDN access AND blocks the proxy (TikTok/抖音/X).
   //    Server-side gives a single merged mp4 — no sync issues.
-  // 2. For B站/小红书/YouTube (DASH-separated, but our proxy can reach the CDN),
-  //    use the frontend dual-track instead. Proxying through the backend
-  //    eliminates the GFW bottleneck that the server-side path has — the proxy
-  //    stream runs at full backend bandwidth, not 50-200KB/s through Clash.
-  const dualTrackPlatforms = ['B站', '小红书', 'YouTube']
-  const useServerSide =
-    !dualTrackPlatforms.includes(props.videoInfo.platform) &&
-    (!!fmt.audio_url || ['TikTok', '抖音', 'X'].includes(props.videoInfo.platform))
+  // 2. B站: proxy/stream has intermittent 403 issues with rotating edge CDN
+  //    domains, so prefer server-side merge. Falls back to dual-track on error.
+  // 3. For 小红书/YouTube (DASH-separated), use the frontend dual-track.
+  //    Proxying through the backend eliminates the GFW bottleneck.
+  const dualTrackPlatforms = ['小红书', 'YouTube']
+  const serverSideFirst = ['TikTok', '抖音', 'X', 'B站']
+  useServerSide.value =
+    serverSideFirst.includes(props.videoInfo.platform) ||
+    (!dualTrackPlatforms.includes(props.videoInfo.platform) &&
+      (!!fmt.audio_url || ['TikTok', '抖音', 'X'].includes(props.videoInfo.platform)))
 
-  if (useServerSide) {
+  if (useServerSide.value) {
+    loadingMessage.value = '正在下载预览视频...'
     videoPlayer.value!.src = getPreviewStreamUrl()
   } else {
+    loadingMessage.value = '加载中...'
     videoPlayer.value!.src = getVideoUrl(fmt.url)
     if (fmt.audio_url) {
       audioPlayer.value!.src = getAudioUrl(fmt.audio_url)
@@ -709,9 +717,27 @@ onBeforeUnmount(() => {
   stopCurrentPreview()
 })
 
-const onVideoError = () => {
+const onVideoError = (e: Event) => {
   isLoading.value = false
-  alert('视频预览加载失败，请尝试其他清晰度或重新解析')
+  const mediaError = (e.target as HTMLVideoElement)?.error
+
+  // Fallback: if server-side failed and we have a dual-track URL, retry
+  if (useServerSide.value && props.videoInfo.formats[selectedFormatIndex.value]?.audio_url) {
+    const fmt = props.videoInfo.formats[selectedFormatIndex.value]
+    useServerSide.value = false
+    isLoading.value = true
+    loadingMessage.value = '加载中...'
+    videoPlayer.value!.src = getVideoUrl(fmt.url)
+    audioPlayer.value!.src = getAudioUrl(fmt.audio_url)
+    return
+  }
+
+  // MEDIA_ERR_NETWORK (2) usually means the CDN URL expired (403)
+  if (mediaError?.code === MediaError.MEDIA_ERR_NETWORK) {
+    alert('视频链接已过期，请点击"重新解析"刷新后再试')
+  } else {
+    alert('视频预览加载失败，请尝试其他清晰度或重新解析')
+  }
   isPlaying.value = false
 }
 

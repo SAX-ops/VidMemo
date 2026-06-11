@@ -1,3 +1,4 @@
+import logging
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect, Query, Header
 from fastapi.responses import StreamingResponse, Response
 from models import ParseRequest, VideoInfo
@@ -15,6 +16,7 @@ from typing import Optional
 from urllib.parse import urlparse, quote
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 ytdlp_service = YtdlpService()
 
 # Use absolute path for downloads directory
@@ -246,6 +248,16 @@ async def proxy_stream(url: str = Query(...), range: Optional[str] = Header(None
                        'googlevideo.com']
     is_allowed = any(d in parsed.netloc for d in allowed_domains)
 
+    # B站 CDN domains change frequently — detect by URL patterns instead
+    is_bilibili_cdn = False
+    if not is_allowed:
+        path = parsed.path
+        qs = parsed.query
+        if '/upgcxcode/' in path or ('buvid' in qs) or ('mid=' in qs and 'bvc=' in qs):
+            is_allowed = True
+            is_bilibili_cdn = True
+            logger.info("proxy/stream: allowed bilibili CDN by URL pattern: %s", parsed.netloc)
+
     if not is_allowed:
         raise HTTPException(status_code=403, detail="Domain not allowed for proxy")
 
@@ -278,8 +290,16 @@ async def proxy_stream(url: str = Query(...), range: Optional[str] = Header(None
         range = f'bytes=0-{MAX_RANGE_SIZE - 1}'
         headers['Range'] = range
 
-    # Set platform-specific Referer
-    if 'bilibili' in parsed.netloc or 'bilivideo' in parsed.netloc or 'hdslb' in parsed.netloc:
+    # Set platform-specific Referer. B站 also uses rotating edge CDN domains
+    # (e.g. `*.edge.mountaintoys.cn`) that match the `/upgcxcode/` path
+    # allowlist but not the host-name check — those still need the bilibili
+    # Referer or the CDN returns 403.
+    if (
+        'bilibili' in parsed.netloc
+        or 'bilivideo' in parsed.netloc
+        or 'hdslb' in parsed.netloc
+        or is_bilibili_cdn
+    ):
         headers['Referer'] = 'https://www.bilibili.com/'
         headers['Origin'] = 'https://www.bilibili.com'
     elif 'tiktok' in parsed.netloc or 'tiktokcdn' in parsed.netloc:
@@ -323,7 +343,12 @@ async def proxy_stream(url: str = Query(...), range: Optional[str] = Header(None
             if resp.status not in (200, 206):
                 resp.close()
                 await session.close()
-                raise HTTPException(status_code=resp.status, detail="Failed to fetch stream")
+                # Bilibili CDN returns 403 when URLs expire (deadline param).
+                # Return a specific detail so the frontend can suggest re-parsing.
+                detail = "Failed to fetch stream"
+                if 'bilibili' in parsed.netloc or 'bilivideo' in parsed.netloc:
+                    detail = "Bilibili CDN URL expired, please re-parse the video"
+                raise HTTPException(status_code=resp.status, detail=detail)
 
             init_headers = {'Accept-Ranges': 'bytes'}
             cr = resp.headers.get('Content-Range')

@@ -28,6 +28,8 @@ class CachedSummary:
     outline: list
     subtitle_meta: dict
     cached_at: str  # ISO 8601
+    executive_summary: dict | None = None
+    mindmap: dict | None = None
 
     def __eq__(self, other):
         if isinstance(other, CachedSummary):
@@ -36,6 +38,8 @@ class CachedSummary:
                 and self.outline == other.outline
                 and self.subtitle_meta == other.subtitle_meta
                 and self.cached_at == other.cached_at
+                and self.executive_summary == other.executive_summary
+                and self.mindmap == other.mindmap
             )
         if isinstance(other, dict):
             return (
@@ -43,6 +47,8 @@ class CachedSummary:
                 and self.outline == other.get("outline")
                 and self.subtitle_meta == other.get("subtitle_meta")
                 and self.cached_at == other.get("cached_at")
+                and self.executive_summary == other.get("executive_summary")
+                and self.mindmap == other.get("mindmap")
             )
         return NotImplemented
 
@@ -50,7 +56,9 @@ class CachedSummary:
         # outline is a list of nested dicts, so tuple(self.outline) won't hash;
         # serialize deterministically to get a stable hash.
         outline_key = json.dumps(self.outline, sort_keys=True, ensure_ascii=False)
-        return hash((self.summary_md, outline_key, tuple(sorted(self.subtitle_meta.items())), self.cached_at))
+        exec_key = json.dumps(self.executive_summary, sort_keys=True, ensure_ascii=False) if self.executive_summary else ""
+        mindmap_key = json.dumps(self.mindmap, sort_keys=True, ensure_ascii=False) if self.mindmap else ""
+        return hash((self.summary_md, outline_key, tuple(sorted(self.subtitle_meta.items())), self.cached_at, exec_key, mindmap_key))
 
 
 class SummaryCache:
@@ -86,6 +94,8 @@ class SummaryCache:
             outline=entry["outline"],
             subtitle_meta=entry["subtitle_meta"],
             cached_at=entry["cached_at"],
+            executive_summary=entry.get("executive_summary"),
+            mindmap=entry.get("mindmap"),
         )
 
     def set(self, url: str, language: str, data: Union[CachedSummary, dict]) -> None:
@@ -96,6 +106,8 @@ class SummaryCache:
                 "outline": data.outline,
                 "subtitle_meta": data.subtitle_meta,
                 "cached_at": data.cached_at,
+                "executive_summary": data.executive_summary,
+                "mindmap": data.mindmap,
             }
         else:
             payload = {
@@ -103,6 +115,8 @@ class SummaryCache:
                 "outline": data["outline"],
                 "subtitle_meta": data["subtitle_meta"],
                 "cached_at": data["cached_at"],
+                "executive_summary": data.get("executive_summary"),
+                "mindmap": data.get("mindmap"),
             }
         all_data = self._read()
         all_data[key] = payload

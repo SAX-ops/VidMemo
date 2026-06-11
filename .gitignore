@@ -41,6 +41,12 @@ Thumbs.db
 # Superpowers brainstorming
 .superpowers/
 
+# Research / scrape artifacts (Firecrawl output, etc.)
+.firecrawl/
+
+# Backend runtime logs
+backend/*.log
+
 # Python
 __pycache__/
 *.py[cod]
@@ -72,6 +78,7 @@ test-*.png
 vidsumai-*.png
 test-results/
 .playwright-mcp/
+frontend/playwright-report/
 
 # Project status (local)
 PROJECT_STATUS.md
