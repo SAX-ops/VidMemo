@@ -1,5 +1,5 @@
 <template>
-  <div v-if="videoInfo" class="max-w-2xl mx-auto mt-8 bg-dark-card border border-dark-border rounded-2xl overflow-hidden">
+  <div v-if="videoInfo" class="bg-dark-card border border-dark-border rounded-card overflow-hidden shadow-card h-full flex flex-col">
     <!-- Video/Thumbnail Area -->
     <div class="relative aspect-video bg-black">
       <!-- Thumbnail (shown when not playing) -->
@@ -47,7 +47,7 @@
         class="absolute inset-0 flex items-center justify-center bg-black/30 cursor-pointer"
         @click="startPreview"
       >
-        <div class="w-20 h-20 rounded-full gradient-bg flex items-center justify-center">
+        <div class="w-20 h-20 rounded-full bg-primary-from flex items-center justify-center">
           <svg width="32" height="32" viewBox="0 0 24 24" fill="white"><path d="M8 5v14l11-7z"/></svg>
         </div>
       </div>
@@ -90,7 +90,7 @@
           <!-- Play/Pause -->
           <button class="text-white w-8 h-8 flex items-center justify-center hover:scale-110 transition-transform outline-none" @click="togglePlay">
             <svg v-if="isPaused" width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
-            <svg v-else width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M6 4h4v16H6zm8 0h4v16h-4z"/></svg>
+            <svg v-else width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M6 4h4v16H6zm8 0h4v16h-4z"/></svg>
           </button>
 
           <!-- Time -->
@@ -102,8 +102,8 @@
 
           <!-- Volume -->
           <button class="text-white w-8 h-8 flex items-center justify-center hover:scale-110 transition-transform outline-none" @click="toggleMute">
-            <svg v-if="isMuted" width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M3.63 3.63a.996.996 0 000 1.41L7.29 8.7 7 9H4c-.55 0-1 .45-1 1v4c0 .55.45 1 1 1h3l3.29 3.29c.63.63 1.71.18 1.71-.71v-4.17l4.18 4.18c-.49.37-1.02.68-1.6.91-.36.15-.58.53-.58.92 0 .72.73 1.18 1.39.91.8-.33 1.55-.77 2.22-1.31l1.34 1.34a.996.996 0 101.41-1.41L5.05 3.63c-.39-.39-1.02-.39-1.42 0zM19 12c0 .82-.15 1.61-.41 2.34l1.53 1.53c.56-1.17.88-2.48.88-3.87 0-3.83-2.4-7.11-5.78-8.4-.59-.23-1.22.23-1.22.86v.19c0 .38.25.71.61.85C17.18 6.54 19 9.06 19 12zm-8.71-6.29l-.17.17L12 7.76V6.41c0-.89-1.08-1.33-1.71-.7zM16.5 12A4.5 4.5 0 0014 7.97v1.79l2.48 2.48c.01-.08.02-.16.02-.24z"/></svg>
-            <svg v-else width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0014 7.97v8.05c1.48-.73 2.5-2.25 2.5-3.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>
+            <svg v-if="isMuted" width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M3.63 3.63a.996.996 0 000 1.41L7.29 8.7 7 9H4c-.55 0-1 .45-1 1v4c0 .55.45 1 1 1h3l3.29 3.29c.63.63 1.71.18 1.71-.71v-4.17l4.18 4.18c-.49.37-1.02.68-1.6.91-.36.15-.58.53-.58.92 0 .72.73 1.18 1.39.91.8-.33 1.55-.77 2.22-1.31l1.34 1.34a.996.996 0 101.41-1.41L5.05 3.63c-.39-.39-1.02-.39-1.42 0zM19 12c0 .82-.15 1.61-.41 2.34l1.53 1.53c.56-1.17.88-2.48.88-3.87 0-3.83-2.4-7.11-5.78-8.4-.59-.23-1.22.23-1.22.86v.19c0 .38.25.71.61.85C17.18 6.54 19 9.06 19 12zm-8.71-6.29l-.17.17L12 7.76V6.41c0-.89-1.08-1.33-1.71-.7zM16.5 12A4.5 4.5 0 0014 7.97v1.79l2.48 2.48c.01-.08.02-.16.02-.24z"/></svg>
+            <svg v-else width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0014 7.97v8.05c1.48-.73 2.5-2.25 2.5-3.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>
           </button>
 
           <!-- Fullscreen / Exit Fullscreen -->
@@ -117,7 +117,7 @@
 
     <!-- Video Info -->
     <div class="p-6">
-      <div class="flex items-center gap-2 text-sm text-gray-400 mb-2">
+      <div class="flex items-center gap-2 text-sm text-secondary mb-2">
         <span class="bg-primary-from/20 text-primary-from px-2 py-0.5 rounded">
           {{ videoInfo.platform }}
         </span>
@@ -128,37 +128,33 @@
       <h3 class="text-white text-lg font-semibold mb-4">
         {{ videoInfo.title }}
       </h3>
-      <p class="text-gray-500 text-sm">
-        已选画质：{{ qualityLabel }}
-      </p>
 
-      <!-- Quality Selector -->
-      <div class="mt-3">
-        <select
-          v-model="selectedQuality"
-          class="bg-dark-bg border border-dark-border rounded-lg px-3 py-2 text-white text-sm w-full"
+      <!-- Quality Selector: 按钮组(P0-5 替换 native select) -->
+      <div class="flex flex-wrap gap-2">
+        <button
+          v-for="q in availableQualities"
+          :key="q.value"
+          type="button"
+          :class="[
+            'px-3 py-1.5 rounded-btn text-sm font-medium transition-all duration-200 ease-out',
+            selectedQuality === q.value
+              ? 'bg-primary-from text-onAccent shadow-card'
+              : 'bg-white/5 border border-white/10 text-secondary hover:border-primary-from/50 hover:text-primary'
+          ]"
+          @click="selectedQuality = q.value"
         >
-          <option
-            v-for="q in availableQualities"
-            :key="q.value"
-            :value="q.value"
-          >{{ q.label }}</option>
-        </select>
+          {{ q.label }}
+        </button>
       </div>
     </div>
 
-    <!-- Action Buttons -->
-    <div class="px-6 pb-6 flex gap-4">
+    <!-- Action Buttons: P2-Layout 删除"预览视频"按钮,缩略图中央大 play 按钮是唯一预览入口;
+         "下载到本地"独占整行作为主 CTA -->
+    <div class="px-6 pb-6">
       <button
-        class="flex-1 bg-white/10 border border-white/20 rounded-xl py-3 text-white font-semibold hover:bg-white/20 transition-all"
-        @click="startPreview"
-      >
-        {{ isPlaying ? '重新预览' : '预览视频' }}
-      </button>
-      <button
-        class="flex-1 gradient-bg border-none rounded-xl py-3 text-white font-bold transition-all"
+        class="w-full gradient-bg border-none rounded-btn py-3 text-onAccent font-bold transition-all duration-200 ease-out hover:-translate-y-0.5 hover:shadow-glow"
         :class="{
-          'opacity-50 cursor-not-allowed hover:-translate-y-0 hover:shadow-none': isDownloading,
+          'opacity-50 cursor-not-allowed hover:translate-y-0 hover:shadow-none': isDownloading,
         }"
         :disabled="isDownloading"
         @click="handleDownload"
@@ -172,6 +168,12 @@
 
 <script setup lang="ts">
 import type { VideoInfo } from '~/types'
+import {
+  currentTime as sharedCurrentTime,
+  duration as sharedDuration,
+  isPlaying as sharedIsPlaying,
+  resetPlaybackState,
+} from '~/composables/usePlaybackState'
 
 const props = defineProps<{
   videoInfo: VideoInfo
@@ -279,15 +281,6 @@ const selectedFormatIndex = computed(() => {
   return props.videoInfo.formats.findIndex(f => f.quality === props.modelValue)
 })
 
-const qualityLabel = computed(() => {
-  const fmt = props.videoInfo.formats.find(f => f.quality === props.modelValue)
-  if (!fmt) return props.modelValue
-  const idx = props.videoInfo.formats.indexOf(fmt)
-  const height = parseInt(props.modelValue) || 0
-  const tag = idx === 0 ? '原画' : qualityTag(height)
-  return `${props.modelValue}（${tag}）`
-})
-
 function stopAudio() {
   if (audioPlayer.value) {
     audioPlayer.value.pause()
@@ -316,12 +309,16 @@ function stopCurrentPreview() {
   progressPercent.value = 0
   hoverTime.value = null
   ignoreSync = false
+  // Play-2: 同步重置共享 state(新视频解析时由父组件 handleParsed 也会调一次)
+  resetPlaybackState()
 }
 
 // Video event handlers
 function onVideoPlay() {
   isPaused.value = false
   startProgressLoop()
+  // Play-2: 同步播放状态
+  sharedIsPlaying.value = true
   if (ignoreSync || !audioPlayer.value?.src) return
   // Don't reset audio.currentTime here — pause-on-stall in onVideoWaiting
   // keeps the two tracks aligned, and the smooth resync handles natural drift
@@ -331,6 +328,8 @@ function onVideoPlay() {
 function onVideoPause() {
   isPaused.value = true
   stopProgressLoop()
+  // Play-2: 同步播放状态
+  sharedIsPlaying.value = false
   if (ignoreSync || !audioPlayer.value?.src) return
   audioPlayer.value.pause()
 }
@@ -381,11 +380,13 @@ function startProgressLoop() {
   const tick = () => {
     if (!videoPlayer.value) return
     if (!isDragging) {
-      currentTime.value = videoPlayer.value.currentTime
+      const t = videoPlayer.value.currentTime
+      currentTime.value = t
+      // Play-2: 同步到共享 state(供 VideoSummary 当前章节高亮)
+      sharedCurrentTime.value = t
       if (videoPlayer.value.duration) {
-        progressPercent.value = (videoPlayer.value.currentTime / videoPlayer.value.duration) * 100
+        progressPercent.value = (t / videoPlayer.value.duration) * 100
         const buffered = videoPlayer.value.buffered
-        const t = videoPlayer.value.currentTime
         let bufferedEnd = 0
         for (let i = 0; i < buffered.length; i++) {
           if (buffered.start(i) <= t && t <= buffered.end(i)) {
@@ -407,6 +408,8 @@ function stopProgressLoop() {
 function onLoadedMetadata() {
   if (!videoPlayer.value) return
   duration.value = videoPlayer.value.duration || 0
+  // Play-2: 同步到共享 state,供 VideoSummary 等消费者读取
+  sharedDuration.value = duration.value
 }
 
 // First frame is ready — hide the loading spinner

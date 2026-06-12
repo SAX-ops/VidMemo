@@ -1,97 +1,124 @@
 <template>
   <div class="min-h-screen bg-dark-bg">
-    <!-- Header -->
-    <header class="border-b border-dark-border py-5 px-10">
+    <!-- Header: 固定顶部 + backdrop blur -->
+    <header class="fixed top-0 w-full z-50 border-b border-white/5 py-4 px-4 md:px-10 bg-dark-bg/60 backdrop-blur-xl">
       <div class="flex justify-between items-center max-w-7xl mx-auto">
         <div class="flex items-center gap-3">
-          <div class="w-10 h-10 gradient-bg rounded-xl flex items-center justify-center text-xl transform -rotate-12">
-            ▶
-          </div>
-          <span class="text-2xl font-bold gradient-text">VidSumAI</span>
+          <svg viewBox="0 0 56 56" width="36" height="36" class="flex-shrink-0" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <linearGradient id="vidGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stop-color="#2563EB" />
+                <stop offset="100%" stop-color="#06B6D4" />
+              </linearGradient>
+              <linearGradient id="memoGrad" x1="100%" y1="0%" x2="0%" y2="100%">
+                <stop offset="0%" stop-color="#34D399" stop-opacity="0.8" />
+                <stop offset="100%" stop-color="#3B82F6" stop-opacity="0.2" />
+              </linearGradient>
+              <filter id="logoGlow" x="-20%" y="-20%" width="140%" height="140%">
+                <feDropShadow dx="0" dy="0" stdDeviation="2" flood-color="#06B6D4" flood-opacity="0.35"/>
+              </filter>
+            </defs>
+            <g filter="url(#logoGlow)">
+              <rect x="2" y="2" width="52" height="52" rx="14" fill="none" stroke="#64748B" stroke-width="1.5" stroke-opacity="0.3" />
+              <path d="M14,16 L26,28 L14,40 V16 Z" fill="url(#vidGrad)" />
+              <path d="M26,28 L38,16 C43,11 50,15 50,22 V34 C50,42 42,46 35,42 L23,35" fill="none" stroke="url(#memoGrad)" stroke-width="7" stroke-linecap="round" stroke-linejoin="round" />
+              <circle cx="26" cy="28" r="2.5" fill="#FFFFFF" />
+            </g>
+          </svg>
+          <span class="text-2xl font-bold text-white font-display tracking-wide" style="text-shadow: 0 0 12px rgba(6,182,212,0.25)">VidMemo</span>
         </div>
         <nav class="flex gap-8 items-center">
-          <a href="#" class="text-gray-500 text-sm hover:text-white transition-colors">功能</a>
-          <a href="#" class="text-gray-500 text-sm hover:text-white transition-colors">价格</a>
-          <a href="#" class="text-gray-500 text-sm hover:text-white transition-colors">关于</a>
-          <div class="bg-primary-from/15 border border-primary-from/30 rounded-full px-4 py-1.5 text-xs text-primary-from">
-            已服务 500 万+ 用户
-          </div>
+          <a href="#" class="text-tertiary text-sm hover:text-white transition-colors">功能</a>
+          <a href="#" class="text-tertiary text-sm hover:text-white transition-colors">价格</a>
+          <a href="#" class="text-tertiary text-sm hover:text-white transition-colors">关于</a>
         </nav>
       </div>
     </header>
 
     <!-- Hero Section -->
-    <main class="container mx-auto px-4 py-20">
-      <h1 class="text-6xl font-extrabold text-center mb-5 leading-tight">
-        <span class="gradient-text">无水印高清</span><br>
-        视频一键下载
+    <main class="container mx-auto px-4 pt-28 pb-20">
+      <h1 class="text-5xl md:text-6xl font-extrabold text-center mb-5 leading-tight max-w-3xl mx-auto font-display">
+        看不完的视频<br>
+        <span class="gradient-text">AI 帮你划重点</span>
       </h1>
-      <p class="text-gray-400 text-xl text-center mb-6">
-        支持 YouTube、TikTok、Instagram 等 50+ 平台
+      <p class="text-secondary text-xl text-center mb-6">
+        粘贴链接，自动生成章节大纲、核心摘要和思维导图
       </p>
 
       <!-- Selling Points -->
-      <div class="flex justify-center gap-6 mb-10">
+      <div class="flex justify-center flex-wrap gap-3 mb-10">
         <div class="flex items-center gap-2 bg-primary-from/10 border border-primary-from/20 rounded-full px-5 py-2.5 text-sm text-primary-from">
-          <span>⚡</span>
-          <span>极速解析</span>
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z"/><path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z"/><path d="M15 13a4.5 4.5 0 0 1-3-4 4.5 4.5 0 0 1-3 4"/><path d="M17.599 6.5a3 3 0 0 0 .399-1.375"/><path d="M6.003 5.125A3 3 0 0 0 6.401 6.5"/><path d="M3.477 10.896a4 4 0 0 1 .585-.396"/><path d="M19.938 10.5a4 4 0 0 1 .585.396"/><path d="M6 18a4 4 0 0 1-1.967-.516"/><path d="M19.967 17.484A4 4 0 0 1 18 18"/></svg>
+          <span>AI 一键总结</span>
         </div>
         <div class="flex items-center gap-2 bg-primary-from/10 border border-primary-from/20 rounded-full px-5 py-2.5 text-sm text-primary-from">
-          <span>🎬</span>
-          <span>8K 超高清</span>
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/></svg>
+          <span>智能问答</span>
         </div>
         <div class="flex items-center gap-2 bg-primary-from/10 border border-primary-from/20 rounded-full px-5 py-2.5 text-sm text-primary-from">
-          <span>🚫</span>
-          <span>无水印</span>
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          <span>边看边记</span>
         </div>
         <div class="flex items-center gap-2 bg-primary-from/10 border border-primary-from/20 rounded-full px-5 py-2.5 text-sm text-primary-from">
-          <span>📦</span>
-          <span>多平台支持</span>
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          <span>多平台下载</span>
         </div>
       </div>
 
       <!-- Download Input -->
       <DownloadInput @parsed="handleParsed" />
 
-      <!-- Video Preview -->
-      <VideoPreview
-        v-if="videoInfo"
-        ref="videoPreviewRef"
-        :video-info="videoInfo"
-        v-model="selectedQuality"
-        :is-downloading="isDownloading"
-        :download-progress="displayProgress"
-        @download="handleDownload"
-      />
+      <!-- Section: 视频 + AI 笔记 并排布局 (60 / 40,lg+ 生效,<lg 自动堆叠) -->
+      <div v-if="videoInfo" class="mt-10">
+        <!-- Section header + AI 总结 toggle -->
+        <div class="flex items-center gap-3 mb-4">
+          <span class="text-sm font-semibold text-secondary uppercase tracking-widest">AI 总结</span>
+          <div class="flex-1 h-px bg-dark-border"></div>
+          <button
+            @click="showSummary = !showSummary"
+            class="px-3 py-1 rounded-btn text-sm font-medium transition-all duration-200 ease-out"
+            :class="showSummary
+              ? 'bg-primary-from/20 text-primary-from border border-primary-from/30'
+              : 'bg-dark-card text-secondary border border-dark-border hover:border-primary-from/50 hover:text-primary'"
+          >
+            {{ showSummary ? '收起笔记' : '展开笔记' }}
+          </button>
+        </div>
 
-      <!-- AI 总结 toggle -->
-      <div v-if="videoInfo" class="max-w-2xl mx-auto mt-3 flex justify-end">
-        <button
-          @click="showSummary = !showSummary"
-          class="px-4 py-2 rounded-lg text-sm font-medium transition-all"
-          :class="showSummary
-            ? 'bg-primary-from/20 text-primary-from border border-primary-from/30'
-            : 'bg-dark-card text-white border border-dark-border hover:border-primary-from/50'"
-        >
-          {{ showSummary ? '✕ 关闭 AI 总结' : '✨ AI 总结' }}
-        </button>
+        <!-- Grid: 视频 (60%) | 笔记 (40%);笔记关闭时视频占满 100%。
+             视频卡高度由 ResizeObserver 动态同步到总结卡。 -->
+        <div class="grid grid-cols-1 lg:grid-cols-5 gap-6 items-stretch">
+          <div :class="showSummary ? 'lg:col-span-3' : 'lg:col-span-5'">
+            <VideoPreview
+              ref="videoPreviewRef"
+              :video-info="videoInfo"
+              v-model="selectedQuality"
+              :is-downloading="isDownloading"
+              :download-progress="displayProgress"
+              @download="handleDownload"
+            />
+          </div>
+          <div v-if="showSummary" class="lg:col-span-2">
+            <VideoSummary
+              :visible="showSummary"
+              :video-url="videoInfo.url"
+              :video-title="videoInfo.title"
+              :height="videoCardHeight"
+              @outline-click="onOutlineClick"
+            />
+          </div>
+        </div>
       </div>
 
-      <!-- AI 总结 panel -->
-      <VideoSummary
-        v-if="showSummary && videoInfo"
-        :visible="showSummary"
-        :video-url="videoInfo.url"
-        :video-title="videoInfo.title"
-        @outline-click="onOutlineClick"
-      />
-
+      <!-- Bug-2: mt-8 让下载区域和视频卡片区视觉分离 -->
       <!-- Progress Tracker -->
       <ProgressTracker
         v-if="progress"
         :progress="progress"
         :filename="videoInfo?.title || 'video'"
         :display-progress="displayProgress"
+        :download-state="downloadState"
+        class="mt-8"
         @re-download="handleDownload"
       />
 
@@ -100,19 +127,20 @@
     </main>
 
     <!-- Footer -->
-    <footer class="text-center py-10 text-gray-600 text-sm border-t border-dark-border">
+    <footer class="text-center py-10 text-tertiary text-sm border-t border-dark-border">
       <div class="flex justify-center gap-6 mb-4">
         <a href="#" class="hover:text-white transition-colors">关于我们</a>
         <a href="#" class="hover:text-white transition-colors">使用条款</a>
         <a href="#" class="hover:text-white transition-colors">隐私政策</a>
         <a href="#" class="hover:text-white transition-colors">联系我们</a>
       </div>
-      <p>© 2024 VidSumAI. All rights reserved.</p>
+      <p>© 2026 影记 VidMemo. All rights reserved.</p>
     </footer>
   </div>
 </template>
 
 <script setup lang="ts">
+import { ref, watch, nextTick, onBeforeUnmount } from 'vue'
 import type { VideoInfo, ProgressUpdate } from '~/types'
 import VideoSummary from '~/components/VideoSummary.vue'
 
@@ -125,8 +153,45 @@ const progress = ref<ProgressUpdate | null>(null)
 const taskId = ref<string | null>(null)
 const isDownloading = ref(false)
 const displayProgress = ref(0)
-const showSummary = ref(false)
+// 下载状态机 —— idle → preparing → triggered(终态) / failed
+// - idle:      用户未触发下载 / 下载进行中(显示进度条)
+// - preparing: WS 已完成后端下载,blob fetch 进行中(蓝色 spinner)
+// - triggered: blob fetch 成功,a.click() 已触发浏览器下载(蓝色 ✓)
+// - failed:    blob fetch 失败或 WS 报 failed(红色 ✕)
+const downloadState = ref<'idle' | 'preparing' | 'triggered' | 'failed'>('idle')
+// P2-Layout: AI 总结默认自动展开(解析成功后无需点击)
+const showSummary = ref(true)
 const videoPreviewRef = ref<InstanceType<typeof import('~/components/VideoPreview.vue').default> | null>(null)
+
+// ResizeObserver: sync video card height to summary card
+const videoCardHeight = ref<number | undefined>(undefined)
+let resizeObserver: ResizeObserver | null = null
+
+// Watch for VideoPreview to mount, then observe its height
+watch(() => videoInfo.value, () => {
+  // Disconnect previous observer
+  resizeObserver?.disconnect()
+  resizeObserver = null
+
+  // Need nextTick so VideoPreview has mounted after videoInfo is set
+  nextTick(() => {
+    const el = videoPreviewRef.value?.$el
+    if (el) {
+      resizeObserver = new ResizeObserver((entries) => {
+        const entry = entries[0]
+        if (entry) {
+          videoCardHeight.value = entry.contentRect.height
+        }
+      })
+      resizeObserver.observe(el)
+    }
+  })
+})
+
+onBeforeUnmount(() => {
+  resizeObserver?.disconnect()
+  resizeObserver = null
+})
 
 function onOutlineClick(t: number) {
   videoPreviewRef.value?.setCurrentTime(t)
@@ -149,7 +214,8 @@ const handleParsed = (info: VideoInfo) => {
   displayProgress.value = 0
   taskId.value = null
   selectedQuality.value = info.formats[0]?.quality || '1080p'
-  showSummary.value = false
+  // P2-Layout: 解析后强制展开 AI 总结(即使之前用户收起了)
+  showSummary.value = true
 
   // 关闭之前的 WebSocket
   if (ws) {
@@ -172,6 +238,7 @@ const handleDownload = async () => {
   // 重置状态
   progress.value = null
   displayProgress.value = 0
+  downloadState.value = 'idle'
 
   const selectedFormat = videoInfo.value.formats.find(f => f.quality === selectedQuality.value)
 
@@ -236,11 +303,14 @@ const connectWebSocket = (id: string) => {
       console.log('[WS] Download completed, task_id:', taskId.value)
       ws?.close()
       isDownloading.value = false
+      // Bug-1: WS 只表示后端完成,不表示浏览器已保存 → 先进 'preparing'
+      downloadState.value = 'preparing'
       handleDownloadFile()
     } else if (data.status === 'failed') {
       console.log('[WS] Download failed:', data.error)
       ws?.close()
       isDownloading.value = false
+      downloadState.value = 'failed'
     }
   }
 
@@ -283,9 +353,13 @@ const handleDownloadFile = async () => {
     console.log('[Download] Success! File triggered download.')
 
     setTimeout(() => URL.revokeObjectURL(objectUrl), 1000)
+    // a.click() 已触发浏览器下载,但前端无法检测浏览器是否真正完成保存
+    // → 标记为 'triggered'(终态),用户自行管理浏览器下载
+    downloadState.value = 'triggered'
   } catch (e: any) {
     console.error('[Download] Error:', e)
-    alert('保存失败: ' + (e.message || '未知错误'))
+    downloadState.value = 'failed'
+    // 不再用 alert,改为 ProgressTracker 内联错误 banner
   }
 }
 </script>

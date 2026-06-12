@@ -55,6 +55,18 @@ class YtdlpService:
             print(f'[proxy] No proxy detected')
 
     @staticmethod
+    def _format_bytes_simple(n: int) -> str:
+        """Format bytes to human-readable string (used by progress callbacks)."""
+        if n < 1024:
+            return f"{n} B"
+        elif n < 1024 ** 2:
+            return f"{n / 1024:.2f} KiB"
+        elif n < 1024 ** 3:
+            return f"{n / 1024 ** 2:.2f} MiB"
+        else:
+            return f"{n / 1024 ** 3:.2f} GiB"
+
+    @staticmethod
     def is_douyin(url: str) -> bool:
         return 'douyin.com' in url
 
@@ -616,13 +628,28 @@ class YtdlpService:
         """
         try:
             from .bilibili import download_bilibili
+            import time as _time
 
             with self._lock:
                 if task_id in self.tasks:
                     self.tasks[task_id]['status'] = 'downloading'
-                    self.tasks[task_id]['progress'] = 10
+                    self.tasks[task_id]['progress'] = 0
 
-            await download_bilibili(url, quality, direct_path)
+            start_time = _time.monotonic()
+
+            def _on_progress(downloaded: int, total: int):
+                elapsed = _time.monotonic() - start_time
+                pct = (downloaded / total * 100) if total > 0 else 0
+                speed_bps = downloaded / elapsed if elapsed > 0 else 0
+                remaining = (total - downloaded) / speed_bps if speed_bps > 0 else 0
+                with self._lock:
+                    if task_id in self.tasks:
+                        self.tasks[task_id]['progress'] = min(99, pct)
+                        self.tasks[task_id]['downloaded'] = self._format_bytes_simple(downloaded)
+                        self.tasks[task_id]['speed'] = f"{self._format_bytes_simple(int(speed_bps))}/s" if speed_bps > 0 else ''
+                        self.tasks[task_id]['eta'] = f"{int(remaining)}s" if remaining > 0 else ''
+
+            await download_bilibili(url, quality, direct_path, on_progress=_on_progress)
 
             with self._lock:
                 if task_id in self.tasks:
@@ -667,13 +694,28 @@ class YtdlpService:
         """Download Douyin video using the dedicated Douyin API."""
         try:
             from .douyin import download_douyin
+            import time as _time
 
             with self._lock:
                 if task_id in self.tasks:
-                    self.tasks[task_id]['progress'] = 10
+                    self.tasks[task_id]['progress'] = 0
                     self.tasks[task_id]['status'] = 'downloading'
 
-            await download_douyin(url, quality, output_path)
+            start_time = _time.monotonic()
+
+            def _on_progress(downloaded: int, total: int):
+                elapsed = _time.monotonic() - start_time
+                pct = (downloaded / total * 100) if total > 0 else 0
+                speed_bps = downloaded / elapsed if elapsed > 0 else 0
+                remaining = (total - downloaded) / speed_bps if speed_bps > 0 else 0
+                with self._lock:
+                    if task_id in self.tasks:
+                        self.tasks[task_id]['progress'] = min(99, pct)
+                        self.tasks[task_id]['downloaded'] = self._format_bytes_simple(downloaded)
+                        self.tasks[task_id]['speed'] = f"{self._format_bytes_simple(int(speed_bps))}/s" if speed_bps > 0 else ''
+                        self.tasks[task_id]['eta'] = f"{int(remaining)}s" if remaining > 0 else ''
+
+            await download_douyin(url, quality, output_path, on_progress=_on_progress)
 
             with self._lock:
                 if task_id in self.tasks:

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-VidSumAI is a multi-platform video downloader with a dark, minimal UI and red-yellow gradient branding. Supports 9+ platforms: YouTube, Bilibili, Instagram, TikTok, 抖音, 小红书, 微博, X (Twitter), Facebook.
+VidMemo is a multi-platform video downloader with a dark, minimal UI and red-yellow gradient branding. Supports 10+ platforms: YouTube, Bilibili, Instagram, TikTok, 抖音, 小红书, 微博, X (Twitter), Facebook, 西瓜视频.
 
 ## Tech Stack
 

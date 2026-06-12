@@ -3,6 +3,7 @@ from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect, Qu
 from fastapi.responses import StreamingResponse, Response
 from models import ParseRequest, VideoInfo
 from services.ytdlp import YtdlpService
+from services.errors import ParseError, classify_parse_error
 from yt_dlp import YoutubeDL
 import asyncio
 import hashlib
@@ -61,8 +62,19 @@ async def parse_video(request: ParseRequest):
     try:
         result = await ytdlp_service.parse_url(request.url)
         return result
+    except ParseError as e:
+        # Already classified by the service layer (or by us below)
+        raise HTTPException(
+            status_code=e.http_status,
+            detail={"code": e.code, "message": e.message},
+        )
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        # Classify raw yt-dlp / network / unknown errors into user-friendly form
+        friendly = classify_parse_error(e, request.url)
+        raise HTTPException(
+            status_code=friendly.http_status,
+            detail={"code": friendly.code, "message": friendly.message},
+        )
 
 
 @router.get("/download/{task_id}")
@@ -152,19 +164,23 @@ async def progress_websocket(websocket: WebSocket, task_id: str):
 
     try:
         while True:
-            task = ytdlp_service.tasks.get(task_id)
-            if not task:
-                break
+            # 加锁读取 —— progress_hook 在另一个线程用 self._lock 写入,
+            # 不加锁读取会导致 event loop 线程看不到最新的内存更新(线程可见性问题)
+            with ytdlp_service._lock:
+                task = ytdlp_service.tasks.get(task_id)
+                if not task:
+                    break
+                payload = {
+                    "status": task["status"],
+                    "progress": task.get("progress", 0),
+                    "speed": task.get("speed", ""),
+                    "eta": task.get("eta", ""),
+                    "downloaded": task.get("downloaded", "")
+                }
 
-            await websocket.send_json({
-                "status": task["status"],
-                "progress": task.get("progress", 0),
-                "speed": task.get("speed", ""),
-                "eta": task.get("eta", ""),
-                "downloaded": task.get("downloaded", "")
-            })
+            await websocket.send_json(payload)
 
-            if task["status"] in ("completed", "failed"):
+            if payload["status"] in ("completed", "failed"):
                 break
 
             await asyncio.sleep(0.5)

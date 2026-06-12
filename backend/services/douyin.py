@@ -216,8 +216,17 @@ async def parse_douyin(url: str) -> VideoInfo:
     )
 
 
-async def download_douyin(url: str, quality: str, output_path: str) -> None:
-    """Download a Douyin video to a file."""
+async def download_douyin(
+    url: str,
+    quality: str,
+    output_path: str,
+    on_progress: Optional[callable] = None,
+) -> None:
+    """Download a Douyin video to a file.
+
+    on_progress(downloaded_bytes, total_bytes) is called after each chunk
+    so the caller can update the task dict with progress/speed/eta.
+    """
     info = await parse_douyin(url)
 
     # Find the requested quality or closest match
@@ -240,6 +249,11 @@ async def download_douyin(url: str, quality: str, output_path: str) -> None:
     async with httpx.AsyncClient(follow_redirects=True, timeout=60) as client:
         async with client.stream("GET", target.url, headers=headers) as resp:
             resp.raise_for_status()
+            total = int(resp.headers.get("content-length", 0)) or (target.size or 0)
+            downloaded = 0
             with open(output_path, "wb") as f:
                 async for chunk in resp.aiter_bytes(8192):
                     f.write(chunk)
+                    downloaded += len(chunk)
+                    if on_progress:
+                        on_progress(downloaded, total)

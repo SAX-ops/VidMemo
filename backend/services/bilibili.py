@@ -203,11 +203,19 @@ async def parse_bilibili(url: str) -> VideoInfo:
     )
 
 
-async def download_bilibili(url: str, quality: str, output_path: str) -> None:
+async def download_bilibili(
+    url: str,
+    quality: str,
+    output_path: str,
+    on_progress: Optional[callable] = None,
+) -> None:
     """Download a Bilibili video at the specified quality.
 
     Fetches a fresh play URL (CDN URLs expire quickly), then streams the
     video to disk. The Referer header is required by Bilibili's CDN.
+
+    on_progress(downloaded_bytes, total_bytes) is called after each chunk
+    so the caller can update the task dict with progress/speed/eta.
     """
     info = await parse_bilibili(url)
 
@@ -229,6 +237,13 @@ async def download_bilibili(url: str, quality: str, output_path: str) -> None:
     async with httpx.AsyncClient(follow_redirects=True, timeout=300) as client:
         async with client.stream("GET", target.url, headers=headers) as resp:
             resp.raise_for_status()
+            total = int(resp.headers.get("content-length", 0)) or (target.size or 0)
+            downloaded = 0
+            import time as _time
+            start_time = _time.monotonic()
             with open(output_path, "wb") as f:
                 async for chunk in resp.aiter_bytes(256 * 1024):
                     f.write(chunk)
+                    downloaded += len(chunk)
+                    if on_progress:
+                        on_progress(downloaded, total)

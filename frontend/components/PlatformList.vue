@@ -1,32 +1,34 @@
 <template>
   <div class="py-16 text-center">
-    <h2 class="text-sm text-gray-500 uppercase tracking-widest mb-8">
-      支持 50+ 主流平台
+    <h2 class="text-sm text-secondary uppercase tracking-widest mb-3">
+      支持 10 个主流平台
     </h2>
+    <p class="text-tertiary text-xs mb-8">持续接入中</p>
 
-    <div class="flex justify-center gap-8 flex-wrap">
-      <div
-        v-for="platform in platforms"
-        :key="platform.name"
-        class="flex flex-col items-center gap-3 text-gray-500 text-xs transition-all hover:text-white hover:-translate-y-1"
+    <div class="flex justify-center flex-wrap gap-2 max-w-2xl mx-auto">
+      <span
+        v-for="name in platforms"
+        :key="name"
+        class="px-4 py-2 rounded-pill bg-white/5 border border-white/10 text-secondary text-sm transition-all duration-200 ease-out hover:border-primary-from/50 hover:text-primary hover:bg-primary-from/10 cursor-default"
       >
-        <div class="w-14 h-14 bg-white/5 border border-white/10 rounded-xl flex items-center justify-center text-2xl transition-all hover:bg-primary-from/15 hover:border-primary-from/30">
-          {{ platform.icon }}
-        </div>
-        <span>{{ platform.name }}</span>
-      </div>
+        {{ name }}
+      </span>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
+// P1-5: 9 个平台(以 CLAUDE.md 为准),不再使用 emoji icon 行
 const platforms = [
-  { name: 'YouTube', icon: '▶' },
-  { name: 'TikTok', icon: '♪' },
-  { name: 'Instagram', icon: '📷' },
-  { name: 'X', icon: '𝕏' },
-  { name: 'Facebook', icon: 'f' },
-  { name: 'Bilibili', icon: '◎' },
-  { name: '更多平台', icon: '📺' },
+  'YouTube',
+  'B 站',
+  'TikTok',
+  '抖音',
+  'Instagram',
+  '小红书',
+  'X (Twitter)',
+  'Facebook',
+  '微博',
+  '西瓜视频',
 ]
 </script>

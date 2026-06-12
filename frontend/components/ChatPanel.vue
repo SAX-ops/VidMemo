@@ -4,14 +4,14 @@
     <div ref="messagesEl" class="flex-1 overflow-y-auto space-y-4 mb-4 px-1">
       <!-- Empty state -->
       <div v-if="messages.length === 0" class="flex flex-col items-center justify-center py-12 gap-4 text-center">
-        <p class="text-text-secondary text-sm">💬 基于视频内容的智能问答</p>
+        <p class="text-secondary text-sm flex items-center justify-center gap-2"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/></svg> 基于视频内容的智能问答</p>
         <div class="space-y-2 w-full max-w-md">
-          <p class="text-text-secondary/60 text-xs">示例问题：</p>
+          <p class="text-secondary/60 text-xs">示例问题：</p>
           <button
             v-for="q in exampleQuestions"
             :key="q"
             @click="askQuestion(q)"
-            class="block w-full text-left px-4 py-2.5 rounded-lg bg-dark-bg/50 hover:bg-dark-bg/80 text-text-secondary text-sm transition-colors"
+            class="block w-full text-left px-4 py-2.5 rounded-lg bg-dark-bg/50 hover:bg-dark-bg/80 text-secondary text-sm transition-colors"
           >
             {{ q }}
           </button>
@@ -29,7 +29,7 @@
 
         <!-- Assistant message -->
         <div v-else class="flex flex-col gap-2 max-w-[90%]">
-          <div class="text-text-secondary text-sm leading-relaxed whitespace-pre-wrap">
+          <div class="text-secondary text-sm leading-relaxed whitespace-pre-wrap">
             <span v-if="msg.content">{{ msg.content }}</span>
             <span v-else-if="status === 'generating' && idx === currentAssistantIdx" class="inline-flex items-center gap-1.5">
               <span class="w-1.5 h-1.5 bg-primary-from rounded-full animate-pulse" />
@@ -40,7 +40,7 @@
 
           <!-- Citation cards -->
           <div v-if="msg.citations?.length" class="mt-1">
-            <p class="text-xs text-text-secondary/60 mb-1">📎 来源</p>
+            <p class="text-xs text-secondary/60 mb-1 flex items-center gap-1"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg> 来源</p>
             <div class="space-y-1">
               <button
                 v-for="(cit, ci) in msg.citations"
@@ -51,13 +51,13 @@
                 <span class="text-primary-from font-mono text-xs min-w-[42px]">
                   {{ formatTime(cit.timestamp) }}
                 </span>
-                <span class="text-text-secondary text-sm">{{ cit.chapter_title }}</span>
+                <span class="text-secondary text-sm">{{ cit.chapter_title }}</span>
               </button>
             </div>
           </div>
 
           <!-- Cancelled badge -->
-          <div v-if="status === 'cancelled' && idx === currentAssistantIdx" class="text-xs text-text-secondary/40 mt-0.5">
+          <div v-if="status === 'cancelled' && idx === currentAssistantIdx" class="text-xs text-secondary/40 mt-0.5">
             已取消
           </div>
         </div>
@@ -72,7 +72,7 @@
           :disabled="status === 'generating'"
           @keydown.enter="handleSend"
           placeholder="输入你的问题..."
-          class="flex-1 bg-dark-bg/60 border border-dark-border rounded-lg px-3 py-2 text-sm text-white placeholder:text-text-secondary/40 focus:outline-none focus:border-primary-from/50 disabled:opacity-40"
+          class="flex-1 bg-dark-bg/60 border border-dark-border rounded-lg px-3 py-2 text-sm text-white placeholder:text-secondary/40 focus:outline-none focus:border-primary-from/50 disabled:opacity-40"
         />
         <button
           v-if="status === 'generating'"
